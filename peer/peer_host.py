@@ -1,36 +1,37 @@
 import socket
 from threading import Thread, Lock
-from typing import List, Tuple
-from utils.message import Message
 import json
 import queue
 import time
+from datetime import datetime
+from utils.protocol import create_request, parse_request, Command, parse_response, Status
 
 class PeerHost:
     def __init__(self, channel_name, ip, port, tracker_ip, tracker_port, max_connections=10):
+        # Tracker information
+        self.tracker_ip = tracker_ip
+        self.tracker_port = tracker_port
+        
+        # Channel information
         self.channel_name = channel_name
         self.ip = ip
         self.port = port
-        self.tracker_ip = tracker_ip
-        self.tracker_port = tracker_port
         self.max_connections = max_connections
         
-        # List of connected peers
-        self.connected_peers: List[Tuple] = []
+        # Connected peers information
+        self.connected_peers: list[tuple] = []
         self.peer_lock = Lock()
         
-        # List of messages
+        # Messages information
         self.messages = [
-            Message("System", "Welcome to the channel!"),
-            Message("Dien", "Hello everyone!"),
-            Message("Hieu", "Hi Dien!"),
+            {"username": "System", "message_content": "Welcome to the channel!", "time": datetime.now().strftime("%H:%M:%S")},
+            {"username": "Dien", "message_content": "Hello everyone!", "time": datetime.now().strftime("%H:%M:%S")},
+            {"username": "Hieu", "message_content": "Hi Dien!", "time": datetime.now().strftime("%H:%M:%S")}
         ]
         self.messages_lock = Lock()
-        
-        # Message queue for broadcasting
         self.message_queue = queue.Queue()
         
-        # Create a socket
+        # Running manager
         self.socket_server = socket.socket()
         self.socket_server.bind((self.ip, self.port))
         
@@ -39,14 +40,13 @@ class PeerHost:
 
     def listen(self):
         try: 
-            # Submit info before listening
-            status = self.submit_info()
+            status = self.host_submission()
             if status != "OK":
                 print("Failed to submit info to tracker.")
                 return
                 
             self.socket_server.listen(10)
-            print(f"Listening on {self.ip}:{self.port}")
+            print(f"Successfully listening on {self.ip}:{self.port}...")
             
             # Start the broadcast thread
             Thread(target=self.broadcast_messages, daemon=True).start()
@@ -65,35 +65,44 @@ class PeerHost:
         finally:
             self.socket_server.close()
 
-    def submit_info(self):
-        data = {
-            "command_name": "HOST",
+    def host_submission(self):        
+        data = create_request(Command.HOST, {
             "channel_name": self.channel_name,
             "peer_server_ip": self.ip,
             "peer_server_port": self.port
-        }
-        
+        }).encode("utf-8")
+                
         with socket.socket() as tracker_socket:
             tracker_socket.connect((self.tracker_ip, self.tracker_port))
-            tracker_socket.send(json.dumps(data).encode("utf-8"))
-            status = tracker_socket.recv(1024).decode("utf-8")
+            tracker_socket.send(data)
+            data = tracker_socket.recv(1024).decode("utf-8")
+            status, payload = parse_response(data)
+            if status != Status.OK.value:
+                print(f"Failed to submit info to tracker: {payload['status']}")
+                return payload['status']
+            tracker_socket.close()
         
         return status
     
     def handle_peer_connection(self, conn, addr):
         # Send initial messages to the new peer
         with self.messages_lock:
-            conn.send(json.dumps([message.to_dict() for message in self.messages]).encode("utf-8"))
+            request = create_request(Command.MESSAGE, self.messages).encode("utf-8")
+            conn.send(request)
         
         while self.running:
             try:
                 data = conn.recv(1024).decode("utf-8")
                 if not data:
                     break
-                data = json.loads(data)
+                command, payload = parse_request(data)
                 
-                if data['command_name'] == "MESSAGE":
-                    message = Message(data['username'], data['message_content'])
+                if command == Command.MESSAGE.value:
+                    message = {
+                        "username": payload['username'],
+                        "message_content": payload['message_content'],
+                        "time": datetime.now().strftime("%H:%M:%S")
+                    }
                     with self.messages_lock:
                         self.messages.append(message)
                     self.message_queue.put((message, addr))
@@ -106,12 +115,15 @@ class PeerHost:
             self.connected_peers = [(c, a) for c, a in self.connected_peers if a != addr]
         conn.close()
 
+    # NOT DONE: 
+    # Messages should be delivered in list rather than one by one -> Change the protocol, remove BROADCAST command
+    # Fetch all messages from the queue and send them to the peers
+    # May need thread pooling for sending messages at good performance
     def broadcast_messages(self):
         while self.running:
             try:
-                message, sender_addr = self.message_queue.get(timeout=1.0)
-                message_dict = message.to_dict()
-                message_data = json.dumps(message_dict).encode("utf-8")
+                message, sender_addr = self.message_queue.get(timeout=0.1)
+                message_data = create_request(Command.BROADCAST, message).encode("utf-8")
                 
                 with self.peer_lock:
                     for conn, addr in self.connected_peers:
@@ -126,10 +138,10 @@ class PeerHost:
                 print(f"Error in broadcast thread: {e}")
                 time.sleep(1)
 
-    def stop(self):
-        self.running = False
-        self.socket_server.close()
-        with self.peer_lock:
-            for conn, _ in self.connected_peers:
-                conn.close()
-            self.connected_peers = []
+    # def stop(self):
+    #     self.running = False
+    #     self.socket_server.close()
+    #     with self.peer_lock:
+    #         for conn, _ in self.connected_peers:
+    #             conn.close()
+    #         self.connected_peers = []

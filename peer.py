@@ -7,26 +7,41 @@ from threading import Thread
 def peer_server(peer_host: PeerHost):
     peer_host.listen()
 
+# DONE
 def client_interface(client: PeerClient):
     """Interactive interface for the client to interact with peer hosts."""
     print("Welcome to the Peer Chat Client!")
     print("Commands:")
-    print("  /list - List all available channels")
+    print("  /list - list all available channels")
     print("  /join <channel_name> - Join a specific channel")
+    print("  /connected - list all connected channels")
+    print("  /sendto <channel_name> <message> - Send a message to a specific channel")
+    print("  /disconnect <channel_name> - Disconnect from a specific channel")
     print("  /exit - Exit the application")
-    print("  Any other input will be sent as a message to the current channel.")
+    print("  Any other input will be sent as a message to all connected channels.")
     
     while True:
         try:
             user_input = input()
+            
             if user_input.lower() == "/exit":
                 client.disconnect()
                 break
+            
             elif user_input.lower() == "/list":
                 hosts = client.get_peer_hosts()
                 print("Available Channels:")
                 for host in hosts:
                     print(f"  - {host['channel_name']} at {host['peer_server_ip']}:{host['peer_server_port']}")
+                    
+            elif user_input.lower() == "/connected":
+                if client.hosts:
+                    print("Connected Channels:")
+                    for host_key in client.hosts:
+                        print(f"  - {host_key[0]}:{host_key[1]}")
+                else:
+                    print("Not connected to any channels.")
+                    
             elif user_input.lower().startswith("/join "):
                 channel_name = user_input.split(" ", 1)[1].strip()
                 hosts = client.get_peer_hosts()
@@ -35,32 +50,71 @@ def client_interface(client: PeerClient):
                     if host['channel_name'] == channel_name:
                         target_host = host
                         break
+                    
                 if target_host:
-                    # Disconnect from current host if connected
-                    if client.current_host:
-                        client.disconnect()
-                    success = client.connect_to_host(target_host['peer_server_ip'], target_host['peer_server_port'])
-                    if success:
-                        print(f"Joined channel: {channel_name}")
-                        # Display current messages
-                        with client.messages_lock:
-                            print("Current Messages:")
-                            for msg in client.messages:
-                                # Use ANSI escape codes for coloring
-                                RESET = "\033[0m"
-                                TIME_COLOR = "\033[92m"  # Green for time
-                                USER_COLOR = "\033[94m"  # Blue for username
-                                SELF_COLOR = "\033[97m"  # White for self messages
-                                
-                                if msg.username == client.username:
-                                    print(f"{TIME_COLOR}{msg.time}{RESET} {USER_COLOR}[{msg.username}]{RESET}: {SELF_COLOR}{msg.message_content}{RESET}")
-                                else:
-                                    print(f"{TIME_COLOR}{msg.time}{RESET} {USER_COLOR}[{msg.username}]{RESET}: {msg.message_content}")
+                    host_key = (target_host['peer_server_ip'], target_host['peer_server_port'])
+                    if host_key in client.hosts:
+                        print(f"Already connected to channel: {channel_name}")
+                    else:
+                        success = client.connect_to_host(target_host['peer_server_ip'], target_host['peer_server_port'])
+                        if success:
+                            print(f"Joined channel: {channel_name}")
+                            # Display current messages for this host
+                            with client.messages_lock:
+                                print("Current Messages:")
+                                for msg in client.messages.get(host_key, []):
+                                    # Use ANSI escape codes for coloring
+                                    RESET = "\033[0m"
+                                    TIME_COLOR = "\033[92m"  # Green for time
+                                    USER_COLOR = "\033[94m"  # Blue for username
+                                    SELF_COLOR = "\033[97m"  # White for self messages
+                                    
+                                    if msg['username'] == client.username:
+                                        print(f"{TIME_COLOR}{msg.get('time')}{RESET} {SELF_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
+                                    else:
+                                        print(f"{TIME_COLOR}{msg.get('time')}{RESET} {USER_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
                 else:
                     print(f"Channel {channel_name} not found.")
-            elif client.current_host:
-                # Send as a message to the current host
-                client.send_message(user_input)
+                    
+            elif user_input.lower().startswith("/sendto "):
+                parts = user_input.split(" ", 2)
+                if len(parts) < 3:
+                    print("Usage: /sendto <channel_name> <message>")
+                else:
+                    channel_name = parts[1].strip()
+                    message = parts[2].strip()
+                    hosts = client.get_peer_hosts()
+                    target_host = None
+                    for host in hosts:
+                        if host['channel_name'] == channel_name:
+                            target_host = host
+                            break
+                    if target_host:
+                        host_key = (target_host['peer_server_ip'], target_host['peer_server_port'])
+                        if host_key in client.hosts:
+                            client.send_message(message, host_key)
+                        else:
+                            print(f"Not connected to channel: {channel_name}. Use /join <channel_name> to connect.")
+                    else:
+                        print(f"Channel {channel_name} not found.")
+                        
+            elif user_input.lower().startswith("/disconnect "):
+                channel_name = user_input.split(" ", 1)[1].strip()
+                hosts = client.get_peer_hosts()
+                target_host = None
+                for host in hosts:
+                    if host['channel_name'] == channel_name:
+                        target_host = host
+                        break
+                if target_host:
+                    host_key = (target_host['peer_server_ip'], target_host['peer_server_port'])
+                    if host_key in client.hosts:
+                        client.disconnect(host_key)
+                    else:
+                        print(f"Not connected to channel: {channel_name}")
+                else:
+                    print(f"Channel {channel_name} not found.")
+                    
             else:
                 print("You are not connected to any channel. Use /join <channel_name> to connect.")
         except KeyboardInterrupt:

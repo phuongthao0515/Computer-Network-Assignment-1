@@ -1,5 +1,3 @@
-from utils.message import Message
-
 class Channel:
     def __init__(self, channel_name, host_ip, host_port):
         self.channel_name = channel_name
@@ -18,11 +16,11 @@ class Channel:
             "channel_name": self.channel_name,
             "host_ip": self.host_ip,
             "host_port": self.host_port,
-            "list_of_messages": [message.to_dict() for message in self.list_of_messages]
+            "list_of_messages": self.list_of_messages
         }
         
     @classmethod
     def from_dict(cls, data):
         channel = cls(data["channel_name"], data["host_ip"], data["host_port"])
-        channel.list_of_messages = [Message.from_dict(msg) for msg in data.get("list_of_messages", [])]
+        channel.list_of_messages = data.get("list_of_messages", [])
         return channel

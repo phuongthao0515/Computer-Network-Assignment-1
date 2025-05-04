@@ -1,34 +1,45 @@
 import socket
 from threading import Thread
 import json
+from utils.protocol import create_response, parse_request, Status
 
 def handle_user_submission(addr, conn):
-    data = json.loads(conn.recv(1024).decode("utf-8"))
-
-    if data['command_name'] == "LIST":
-        conn.send(json.dumps(peers).encode("utf-8"))
-
-    elif data['command_name'] == "HOST":
-        peers.append({
-            "channel_name": data['channel_name'],
-            "peer_server_ip": data['peer_server_ip'],
-            "peer_server_port": data['peer_server_port'],
-        })
-        conn.send("OK".encode("utf-8"))
-
-    # elif data['command_name'] == "REGAIN CONTROL":
-    #     list_channel = get_currently_hosting_channel(data)  # Ensure this function is implemented
-    #     conn.send(json.dumps(list_channel).encode("utf-8"))
-
-    # Optional: add the connection to keep track for broadcasting
-    print("Finished handling user submission from", addr)
+    try:
+        data = conn.recv(4096).decode("utf-8")
+        if not data:
+            print("No data received from", addr)
+            return
+        
+        command, payload = parse_request(data)
+        
+        if command == "LIST":
+            response = create_response(Status.OK, peers)
+            conn.send(response.encode("utf-8"))
+        elif command == "HOST":
+            peers.append({
+                "channel_name": payload['channel_name'],
+                "peer_server_ip": payload['peer_server_ip'],
+                "peer_server_port": payload['peer_server_port'],
+            })
+            response = create_response(Status.OK, {
+                "status": "success",
+                "channel_name": payload['channel_name'],
+            }).encode("utf-8")
+            conn.send(response)
+        elif command == "MESSAGE":
+            pass
+        
+    except ValueError as e:
+        print("Error parsing data:", e)
+        conn.close()
+        return
 
 def listen(ip, port):
     try:
         tracker_socket = socket.socket()
         tracker_socket.bind((ip, port))
         tracker_socket.listen(10)
-        print(f"Listening on {ip}:{port}...")
+        print(f"listening on {ip}:{port}...")
         
         while True:
             conn, addr = tracker_socket.accept()
