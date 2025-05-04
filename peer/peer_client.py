@@ -36,9 +36,9 @@ class PeerClient:
                 tracker_socket.connect((self.tracker_ip, self.tracker_port))
                 
                 request = create_request(Command.LIST, {})
-                tracker_socket.send(request.encode("utf-8"))
+                tracker_socket.send(request)
                 
-                response = tracker_socket.recv(4096).decode("utf-8")
+                response = tracker_socket.recv(4096)
                 status, payload = parse_response(response)
                 
                 if status == Status.OK.value:
@@ -67,7 +67,7 @@ class PeerClient:
             self.messages[host_key] = []
             
             # Receive initial messages
-            data = new_socket.recv(4096).decode("utf-8")
+            data = new_socket.recv(4096)
             command, initial_messages = parse_response(data)
             
             if command != Command.MESSAGE.value:
@@ -105,7 +105,7 @@ class PeerClient:
             socket_obj.settimeout(1.0)
         while self.running.get(host_key, False) and socket_obj:
             try:
-                data = socket_obj.recv(1024).decode("utf-8")
+                data = socket_obj.recv(1024)
                 if not data:
                     break
                 try:
@@ -126,6 +126,15 @@ class PeerClient:
                         continue
                 with self.messages_lock:
                     self.messages[host_key].append(message)
+                    
+                RESET = "\033[0m"
+                TIME_COLOR = "\033[92m"  # Green for time
+                USER_COLOR = "\033[94m"  # Blue for username
+                SELF_COLOR = "\033[97m"  # White for self messages
+                if message['username'] == self.username:
+                    print(f"{TIME_COLOR}{message['time']}{RESET} {SELF_COLOR}[{message['username']}]{RESET} {message['message_content']}")
+                else:
+                    print(f"{TIME_COLOR}{message['time']}{RESET} {USER_COLOR}[{message['username']}]{RESET} {message['message_content']}")
                 
             except socket.timeout:
                 continue  # Timeout occurred, check running flag again
@@ -162,7 +171,7 @@ class PeerClient:
         for key in target_hosts:
             if key in self.sockets:
                 try:
-                    self.sockets[key].send(request.encode("utf-8"))
+                    self.sockets[key].send(request)
                     with self.messages_lock:
                         self.messages[key].append(payload)
                     success = True

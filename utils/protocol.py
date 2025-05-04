@@ -25,13 +25,13 @@ def create_request(command: Command, payload: dict | list[dict]) -> str:
     """
     # Switch case for command
     if command == Command.LIST:
-        return f"{command.value}\r\n"
+        return f"{command.value}\r\n".encode("utf-8")
     elif command == Command.HOST:
-        return f"{command.value}\r\n{json.dumps(payload)}"
+        return f"{command.value}\r\n{json.dumps(payload)}".encode("utf-8")
     elif command == Command.MESSAGE:
-        return f"{command.value}\r\n{json.dumps(payload)}"
+        return f"{command.value}\r\n{json.dumps(payload)}".encode("utf-8")
     elif command == Command.BROADCAST:
-        return f"{command.value}\r\n{json.dumps(payload)}"
+        return f"{command.value}\r\n{json.dumps(payload)}".encode("utf-8")
     
 
 def parse_request(response: str) -> tuple[str, dict | list[dict]]:
@@ -45,6 +45,7 @@ def parse_request(response: str) -> tuple[str, dict | list[dict]]:
         dict: The parsed response data.
     """
     try:
+        response = response.decode("utf-8")
         command, payload = response.split("\r\n", 1)
         if payload:
             payload = json.loads(payload)
@@ -66,7 +67,7 @@ def create_response(status: Status, payload: dict | list[dict]) -> str:
     Returns:
         str: The formatted response string.
     """
-    return f"{status.value}\r\n{json.dumps(payload)}"
+    return f"{status.value}\r\n{json.dumps(payload)}".encode("utf-8")
 
 def parse_response(response: str) -> tuple[str, dict | list[dict]]:
     """
@@ -80,6 +81,7 @@ def parse_response(response: str) -> tuple[str, dict | list[dict]]:
         dict: The parsed response data.
     """
     try:
+        response = response.decode("utf-8")
         status, payload = response.split("\r\n", 1)
         if payload:
             payload = json.loads(payload)

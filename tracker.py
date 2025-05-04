@@ -5,7 +5,7 @@ from utils.protocol import create_response, parse_request, Status
 
 def handle_user_submission(addr, conn):
     try:
-        data = conn.recv(4096).decode("utf-8")
+        data = conn.recv(4096)
         if not data:
             print("No data received from", addr)
             return
@@ -14,7 +14,7 @@ def handle_user_submission(addr, conn):
         
         if command == "LIST":
             response = create_response(Status.OK, peers)
-            conn.send(response.encode("utf-8"))
+            conn.send(response)
         elif command == "HOST":
             peers.append({
                 "channel_name": payload['channel_name'],
@@ -24,7 +24,7 @@ def handle_user_submission(addr, conn):
             response = create_response(Status.OK, {
                 "status": "success",
                 "channel_name": payload['channel_name'],
-            }).encode("utf-8")
+            })
             conn.send(response)
         elif command == "MESSAGE":
             pass

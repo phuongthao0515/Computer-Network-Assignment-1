@@ -70,12 +70,12 @@ class PeerHost:
             "channel_name": self.channel_name,
             "peer_server_ip": self.ip,
             "peer_server_port": self.port
-        }).encode("utf-8")
+        })
                 
         with socket.socket() as tracker_socket:
             tracker_socket.connect((self.tracker_ip, self.tracker_port))
             tracker_socket.send(data)
-            data = tracker_socket.recv(1024).decode("utf-8")
+            data = tracker_socket.recv(1024)
             status, payload = parse_response(data)
             if status != Status.OK.value:
                 print(f"Failed to submit info to tracker: {payload['status']}")
@@ -87,12 +87,12 @@ class PeerHost:
     def handle_peer_connection(self, conn, addr):
         # Send initial messages to the new peer
         with self.messages_lock:
-            request = create_request(Command.MESSAGE, self.messages).encode("utf-8")
+            request = create_request(Command.MESSAGE, self.messages)
             conn.send(request)
         
         while self.running:
             try:
-                data = conn.recv(1024).decode("utf-8")
+                data = conn.recv(1024)
                 if not data:
                     break
                 command, payload = parse_request(data)
@@ -123,7 +123,7 @@ class PeerHost:
         while self.running:
             try:
                 message, sender_addr = self.message_queue.get(timeout=0.1)
-                message_data = create_request(Command.BROADCAST, message).encode("utf-8")
+                message_data = create_request(Command.MESSAGE, message)
                 
                 with self.peer_lock:
                     for conn, addr in self.connected_peers:
