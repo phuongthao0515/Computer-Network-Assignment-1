@@ -143,10 +143,14 @@ class PeerClient:
                 
             except socket.timeout:
                 continue  # Timeout occurred, check running flag again
-            except Exception as e:
+            except socket.error as e:
                 if self.running.get(host_key, False):
-                    print(f"Error receiving message from {host_ip}:{host_port}: {e}")
+                    print(f"Connection to {host_ip}:{host_port} was closed: {e}")
                 break
+            except Exception as e:
+                print(f"Error receiving message from {host_ip}:{host_port}: {e}")
+                break
+        # Cleanup on disconnection
         self.running[host_key] = False
         if host_key in self.sockets:
             self.sockets[host_key].close()

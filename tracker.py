@@ -31,8 +31,9 @@ def handle_user_submission(addr, conn):
         
     except ValueError as e:
         print("Error parsing data:", e)
-        conn.close()
         return
+    finally:
+        conn.close()
 
 def listen(ip, port):
     try:
