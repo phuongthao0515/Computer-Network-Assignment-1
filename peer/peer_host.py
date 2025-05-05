@@ -19,7 +19,7 @@ class PeerHost:
         self.max_connections = max_connections
         
         # Connected peers information
-        self.connected_peers: list[tuple] = []
+        self.connected_peers = []
         self.peer_lock = Lock()
         
         # Messages information
@@ -65,7 +65,7 @@ class PeerHost:
         finally:
             self.socket_server.close()
 
-    def host_submission(self):        
+    def host_submission(self):
         data = create_request(Command.HOST, {
             "channel_name": self.channel_name,
             "peer_server_ip": self.ip,

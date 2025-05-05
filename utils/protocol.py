@@ -2,17 +2,17 @@ import json
 from enum import Enum
 
 class Command(Enum):
-    LIST: str = "LIST"
-    HOST: str = "HOST"
-    MESSAGE: str = "MESSAGE"
-    BROADCAST: str = "BROADCAST"
+    LIST = "LIST"
+    HOST = "HOST"
+    MESSAGE = "MESSAGE"
+    BROADCAST = "BROADCAST"
     
 class Status(Enum):
-    OK: str = "OK"
-    REQUEST_ERROR: str = "REQUEST_ERROR"
-    SERVER_ERROR: str = "SERVER_ERROR"
+    OK = "OK"
+    REQUEST_ERROR = "REQUEST_ERROR"
+    SERVER_ERROR = "SERVER_ERROR"
     
-def create_request(command: Command, payload: dict | list[dict]) -> str:
+def create_request(command, payload):
     """
     Create a request string to be sent to the tracker or peer.
     
@@ -34,7 +34,7 @@ def create_request(command: Command, payload: dict | list[dict]) -> str:
         return f"{command.value}\r\n{json.dumps(payload)}".encode("utf-8")
     
 
-def parse_request(response: str) -> tuple[str, dict | list[dict]]:
+def parse_request(response):
     """
     Parse the response string from the tracker or peer.
     
@@ -56,7 +56,7 @@ def parse_request(response: str) -> tuple[str, dict | list[dict]]:
         print(f"Error parsing response: {response}")
         raise ValueError("Invalid response format")
     
-def create_response(status: Status, payload: dict | list[dict]) -> str:
+def create_response(status, payload):
     """
     Create a response string to be sent back to the client.
     
@@ -69,7 +69,7 @@ def create_response(status: Status, payload: dict | list[dict]) -> str:
     """
     return f"{status.value}\r\n{json.dumps(payload)}".encode("utf-8")
 
-def parse_response(response: str) -> tuple[str, dict | list[dict]]:
+def parse_response(response):
     """
     Parse the response string from the tracker or peer.
     

@@ -5,7 +5,7 @@ from utils.protocol import Command, Status, create_request, parse_response
 import time
 
 class PeerClient:
-    def __init__(self, username: str, tracker_ip: str, tracker_port: int):
+    def __init__(self, username, tracker_ip, tracker_port):
         # Tracker information
         self.tracker_ip = tracker_ip
         self.tracker_port = tracker_port
@@ -16,17 +16,17 @@ class PeerClient:
         # Peer host information
         self.hosts = {}  # dictionary to store host information with (ip, port) as key
         self.sockets = {}  # dictionary to store sockets with (ip, port) as key
-        
-        # Messages information
-        self.messages: dict[tuple[str, int], list[dict[str, str]]] = {}  # Messages per host
-        self.messages_lock = Lock()
         self.running = {}  # Running status per host
-        self.cached_messages: list[str] = []
+        self.messages = {}  # Messages per host
+        self.messages_lock = Lock()
+        
+        # 
+        self.cached_messages = []
         self.cached_messages_file = f"{username}_cached_messages.json"
         self._load_cached_messages()
 
     # DONE
-    def get_peer_hosts(self) -> list[dict]:
+    def get_peer_hosts(self):
         """
         Send a request to the tracker to get the list of available peer hosts.
         Returns a list of dictionaries containing host information.
@@ -51,18 +51,23 @@ class PeerClient:
             return []
 
     # DONE
-    def connect_to_host(self, host_ip: str, host_port: int) -> bool:
+    def connect_to_host(self, target_host):
         """
         Connect to a specific peer host to fetch and send messages.
         Returns True if connection is successful, False otherwise.
         """
+        host_ip = target_host['peer_server_ip']
+        host_port = target_host['peer_server_port']
         host_key = (host_ip, host_port)
+        host_info = target_host.get('channel_name', 'Unknown Channel')
         try:
             # Prepare for new host connection
             new_socket = socket.socket()
-            new_socket.connect((host_ip, host_port))
+            new_socket.connect(host_key)
+            
+            # Store host information
             self.sockets[host_key] = new_socket
-            self.hosts[host_key] = host_key
+            self.hosts[host_key] = host_info
             self.running[host_key] = True
             self.messages[host_key] = []
             
@@ -97,7 +102,7 @@ class PeerClient:
             return False
 
     # NOT DONE
-    def listen_for_messages(self, host_key: tuple[str, int]):
+    def listen_for_messages(self, host_key):
         """listen for incoming messages from a specific host."""
         host_ip, host_port = host_key
         socket_obj = self.sockets.get(host_key)
@@ -149,7 +154,7 @@ class PeerClient:
         if host_key in self.hosts:
             del self.hosts[host_key]
 
-    def send_message(self, content: str, host_key: tuple[str, int] = None) -> bool:
+    def send_message(self, content, host_key):
         """
         Send a message to a specific host or all connected hosts if host_key is None.
         Returns True if message is sent successfully to at least one host or cached when offline, False otherwise.
@@ -189,7 +194,7 @@ class PeerClient:
             self._cache_message(content)
         return True
 
-    def disconnect(self, host_key: tuple[str, int] = None):
+    def disconnect(self, host_key):
         """Disconnect from a specific host or all hosts if host_key is None."""
         target_hosts = [host_key] if host_key else list(self.hosts.keys())
         for key in target_hosts:
@@ -218,7 +223,7 @@ class PeerClient:
             print(f"Error loading cached messages: {e}")
             self.cached_messages = []
             
-    def _cache_message(self, content: str):
+    def _cache_message(self, content):
         """Cache a message to be sent later when connection is available."""
         self.cached_messages.append(content)
         try:
@@ -227,7 +232,7 @@ class PeerClient:
         except Exception as e:
             print(f"Error caching message: {e}")
             
-    def _send_cached_messages(self, host_key: tuple[str, int] = None):
+    def _send_cached_messages(self, host_key):
         """Send all cached messages to a specific host or all connected hosts if host_key is None."""
         if not self.cached_messages:
             return

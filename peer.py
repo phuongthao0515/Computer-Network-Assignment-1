@@ -49,6 +49,7 @@ def client_interface(client: PeerClient):
                 for host in hosts:
                     if host['channel_name'] == channel_name:
                         target_host = host
+                        print(target_host)
                         break
                     
                 if target_host:
@@ -56,7 +57,7 @@ def client_interface(client: PeerClient):
                     if host_key in client.hosts:
                         print(f"Already connected to channel: {channel_name}")
                     else:
-                        success = client.connect_to_host(target_host['peer_server_ip'], target_host['peer_server_port'])
+                        success = client.connect_to_host(target_host)
                         if success:
                             print(f"Joined channel: {channel_name}")
                             # Display current messages for this host
