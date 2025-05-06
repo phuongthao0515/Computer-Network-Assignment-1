@@ -10,9 +10,8 @@ def handle_user_submission(addr, conn):
     try:
         while True:
             data = conn.recv(4096)
-            print("data:", data)
             if not data:
-                print("No data received from", addr)
+                print(f"Connection closed by {addr}")
                 return
             
             buffer += data.decode("utf-8")

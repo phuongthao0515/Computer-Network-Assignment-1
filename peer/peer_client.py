@@ -120,7 +120,6 @@ class PeerClient:
                     break
                 
                 buffer += data.decode("utf-8")
-                print(f"Buffer: {buffer}")
                 while '\\' in buffer:
                     # Split the buffer into individual requests
                     request, buffer = buffer.split('\\', 1)

@@ -108,13 +108,10 @@ class PeerHost:
             buffer += data.decode("utf-8")
             if not data:
                 break
-            print("buffer:", buffer)
             
             while '\\' in buffer:
                 # Split the buffer into individual requests
                 request, buffer = buffer.split('\\', 1)
-                print("request:", request)
-                print("buffer:", buffer)
                 
                 if not request:
                     continue
@@ -129,7 +126,7 @@ class PeerHost:
                             conn.send(create_response(Status.UNAUTHORIZED, {}))
                             print(f"Sending UNAUTHORIZED response to {addr}")
                             continue
-                        print(1)
+
                         for message in payload:
                             message['time'] = datetime.now().strftime("%H:%M:%S")
                             with self.messages_lock:
@@ -139,16 +136,16 @@ class PeerHost:
                             "status": "success",
                             "message": "Message received"
                         })
-                        print(2)
+
                         conn.send(response)
                         
                     elif command == Command.CACHE.value:
                         # Check authentication
-                        print(3)
+
                         if not self._is_authenticated(payload[0]['username']):
                             print(f"Peer cache {payload[0]['username']} is not authenticated.")
                             continue
-                        print(4)
+
                         for message in payload:
                             message['time'] = datetime.now().strftime("%H:%M:%S")
                             with self.messages_lock:
