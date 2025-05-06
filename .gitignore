@@ -1,3 +1,9 @@
 __pycache__/
 venv/
+<<<<<<< HEAD
 reference/
+=======
+reference/
+*.json
+tracker/
+>>>>>>> a3c6e008a6135d7897cffa802128250c860b1650
