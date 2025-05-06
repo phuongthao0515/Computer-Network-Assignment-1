@@ -228,7 +228,7 @@ class PeerClient:
                     print(f"Error sending message to channel '{ch_name}': {e}")
                     if ch_name in self.channels:
                         self.channels[ch_name]['socket'].close()
-                        del self.channels[ch_name]
+                        self.channels.pop(ch_name, None)
                     # Cache the message for this specific channel
                     self._cache_message(content, ch_name)
         
@@ -282,7 +282,7 @@ class PeerClient:
                 except Exception as e:
                     print(f"Error closing socket for channel '{ch_name}': {e}")
                 print(f"Disconnected from channel '{ch_name}'")
-                del self.channels[ch_name]
+                self.channels.pop(ch_name, None)
         
         # Small delay to ensure threads terminate
         time.sleep(0.1)

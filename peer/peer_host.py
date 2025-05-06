@@ -36,7 +36,7 @@ class PeerHost:
         self.authen_peers_lock = Lock()
         
         # Viewers permission
-        self.view_permission = False
+        self.view_permission = True
         
         # Messages information
         self.messages = [
