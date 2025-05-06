@@ -3,6 +3,7 @@ import random
 from peer.peer_host import PeerHost
 from peer.peer_client import PeerClient
 from threading import Thread
+from utils.protocol import Command
 
 def peer_server(peer_host: PeerHost):
     peer_host.listen()
@@ -98,7 +99,23 @@ def client_interface(client: PeerClient):
                 if channel_name in client.channels:
                     client.disconnect(channel_name)
                 else:
-                    print(f"Not connected to channel: {channel_name}")            
+                    print(f"Not connected to channel: {channel_name}")     
+                    
+            elif user_input.lower().startswith("/debug"):
+                channel_name = user_input.split(" ", 1)[1].strip()
+                if channel_name in client.channels:
+                    client.debug(channel_name)
+                    print("Debug information sent to the channel.")
+                else:
+                    print(f"Not connected to channel: {channel_name}")
+                    
+            elif user_input.lower().startswith("/refresh"):
+                channel_name = user_input.split(" ", 1)[1].strip()
+                if channel_name in client.channels:
+                    with client.messages_lock:
+                        print(client.messages.get(channel_name, []))
+                else:
+                    print(f"Not connected to channel: {channel_name}")
             
             else:
                 print("Invalid command")

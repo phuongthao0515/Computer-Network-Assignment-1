@@ -4,30 +4,45 @@ import json
 from utils.protocol import create_response, parse_request, Status
 
 def handle_user_submission(addr, conn):
+    # Buffer to handle multiple requests at once
+    buffer = ""
+    
     try:
-        data = conn.recv(4096)
-        if not data:
-            print("No data received from", addr)
-            return
-        
-        command, payload = parse_request(data)
-        
-        if command == "LIST":
-            response = create_response(Status.OK, peers)
-            conn.send(response)
-        elif command == "HOST":
-            # A host can have multiple channels
-            for peer in payload:
-                peers.append(peer)
+        while True:
+            data = conn.recv(4096)
+            print("data:", data)
+            if not data:
+                print("No data received from", addr)
+                return
+            
+            buffer += data.decode("utf-8")
+            
+            while '\\' in buffer:
+                # Split the buffer into individual requests
+                request, buffer = buffer.split('\\', 1)
                 
-            response = create_response(Status.OK, {
-                "status": "success",
-                "channel_name": [peer["channel_name"] for peer in payload],
-            })
-            conn.send(response)
-        elif command == "MESSAGE":
-            pass
-        
+                if not request:
+                    continue
+                
+                # Parse the request
+                command, payload = parse_request(request, isSeparated=True)
+                
+                if command == "LIST":
+                    response = create_response(Status.OK, peers)
+                    conn.send(response)
+                elif command == "HOST":
+                    # A host can have multiple channels
+                    for peer in payload:
+                        peers.append(peer)
+                        
+                    response = create_response(Status.OK, {
+                        "status": "success",
+                        "channel_name": [peer["channel_name"] for peer in payload],
+                    })
+                    conn.send(response)
+                elif command == "MESSAGE":
+                    pass
+            
     except ValueError as e:
         print("Error parsing data:", e)
         return

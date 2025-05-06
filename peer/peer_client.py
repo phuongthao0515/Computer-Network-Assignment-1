@@ -111,41 +111,54 @@ class PeerClient:
         
         if socket_obj:
             socket_obj.settimeout(1.0)
-            
+        
+        buffer = ""
         while channel_name in self.channels and socket_obj:
             try:
                 data = socket_obj.recv(1024)
                 if not data:
                     break
-                try:
-                    command, payload = parse_response(data)
-                    if command == Command.MESSAGE.value:
-                        messages = payload
-                    else:
-                        continue  # Ignore non-message commands
-                except ValueError:
-                    # Fallback: Try to parse as raw JSON if protocol format fails
-                    try:
-                        message = json.loads(data)
-                        if not isinstance(message, dict) or 'username' not in message or 'message_content' not in message:
-                            print(f"Warning: Invalid message format received: {data}")
-                            continue
-                    except json.JSONDecodeError:
-                        print(f"Error parsing message data: {data}")
-                        continue
                 
-                for msg in messages:
-                    with self.messages_lock:
-                        self.messages[channel_name].append(msg)
+                buffer += data.decode("utf-8")
+                print(f"Buffer: {buffer}")
+                while '\\' in buffer:
+                    # Split the buffer into individual requests
+                    request, buffer = buffer.split('\\', 1)
                     
-                    RESET = "\033[0m"
-                    TIME_COLOR = "\033[92m"  # Green for time
-                    USER_COLOR = "\033[94m"  # Blue for username
-                    SELF_COLOR = "\033[97m"  # White for self messages
-                    if msg['username'] == self.username:
-                        print(f"{TIME_COLOR}{msg['time']}{RESET} {SELF_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
-                    else:
-                        print(f"{TIME_COLOR}{msg['time']}{RESET} {USER_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
+                    if not request:
+                        continue
+                    
+                    # Parse the request
+                    try:
+                        command, payload = parse_response(request, isSeparated=True)
+                        if command == Command.MESSAGE.value:
+                            messages = payload
+                            for msg in messages:
+                                with self.messages_lock:
+                                    self.messages[channel_name].append(msg)
+                                
+                                RESET = "\033[0m"
+                                TIME_COLOR = "\033[92m"  # Green for time
+                                USER_COLOR = "\033[94m"  # Blue for username
+                                SELF_COLOR = "\033[97m"  # White for self messages
+                                if msg['username'] == self.username:
+                                    print(f"{TIME_COLOR}{msg['time']}{RESET} {SELF_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
+                                else:
+                                    print(f"{TIME_COLOR}{msg['time']}{RESET} {USER_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
+                            
+                        elif command == Status.UNAUTHORIZED.value:
+                            print(f"Unauthorized access to channel '{channel_name}'")
+                            continue  # Ignore non-message commands
+                    except ValueError:
+                        # Fallback: Try to parse as raw JSON if protocol format fails
+                        try:
+                            message = json.loads(request)
+                            if not isinstance(message, dict) or 'username' not in message or 'message_content' not in message:
+                                print(f"Warning: Invalid message format received: {request}")
+                                continue
+                        except json.JSONDecodeError:
+                            print(f"Error parsing message data: {request}")
+                            continue
                 
             except socket.timeout:
                 continue  # Timeout occurred, check if channel still exists
@@ -217,6 +230,20 @@ class PeerClient:
                 # No specific channel, cache as general message
                 self._cache_message(content, None)
         return True
+    
+    def debug(self, channel_name):
+        """Send a debug command to a specific channel."""
+        if channel_name not in self.channels:
+            print(f"Not connected to channel '{channel_name}'")
+            return
+        
+        request = create_request(Command.DEBUG, {})
+        try:
+            self.channels[channel_name]['socket'].send(request)            
+            print(f"Debug command sent to channel '{channel_name}'")
+        except Exception as e:
+            print(f"Error sending debug command to channel '{channel_name}': {e}")
+        
 
     def disconnect(self, channel_name=None):
         """Disconnect from a specific channel or all channels if channel_name is None."""

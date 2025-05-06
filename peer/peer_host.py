@@ -23,6 +23,14 @@ class PeerHost:
         self.connected_peers = []
         self.peer_lock = Lock()
         
+        # Authentication information
+        self.authen_peers = {}
+        self.authen_peers[self.owner_peer] = {
+            "role": "owner",
+            "status": "online",
+        }
+        self.authen_peers_lock = Lock()
+        
         # Messages information
         self.messages = [
             {"username": "System", "message_content": "Welcome to the channel!", "time": datetime.now().strftime("%H:%M:%S")},
@@ -94,35 +102,69 @@ class PeerHost:
             request = create_request(Command.MESSAGE, self.messages)
             conn.send(request)
         
+        buffer = ""
         while self.running:
-            try:
-                data = conn.recv(1024)
-                if not data:
-                    break
-                command, payload = parse_request(data)
-                
-                if command == Command.MESSAGE.value:
-                    for message in payload:
-                        message['time'] = datetime.now().strftime("%H:%M:%S")
-                        with self.messages_lock:
-                            self.messages.append(message)
-                        self.message_queue.put(message)
-                    response = create_response(Status.OK, {
-                        "status": "success",
-                        "message": "Message received"
-                    })
-                    conn.send(response)
-                    
-                elif command == Command.CACHE.value:
-                    for message in payload:
-                        message['time'] = datetime.now().strftime("%H:%M:%S")
-                        with self.messages_lock:
-                            self.messages.append(message)
-                        self.message_queue.put(message)
-                    # No response needed for cache command
-            except Exception as e:
-                print(f"Error handling peer {addr}: {e}")
+            data = conn.recv(1024)
+            buffer += data.decode("utf-8")
+            if not data:
                 break
+            print("buffer:", buffer)
+            
+            while '\\' in buffer:
+                # Split the buffer into individual requests
+                request, buffer = buffer.split('\\', 1)
+                print("request:", request)
+                print("buffer:", buffer)
+                
+                if not request:
+                    continue
+                
+                # Parse the request
+                try: 
+                    command, payload = parse_request(request, isSeparated=True)
+                    if command == Command.MESSAGE.value:
+                        # Check authentication
+                        if not self._is_authenticated(payload[0]['username']):
+                            print(f"Peer message {payload[0]['username']} is not authenticated.")
+                            conn.send(create_response(Status.UNAUTHORIZED, {}))
+                            print(f"Sending UNAUTHORIZED response to {addr}")
+                            continue
+                        print(1)
+                        for message in payload:
+                            message['time'] = datetime.now().strftime("%H:%M:%S")
+                            with self.messages_lock:
+                                self.messages.append(message)
+                            self.message_queue.put(message)
+                        response = create_response(Status.OK, {
+                            "status": "success",
+                            "message": "Message received"
+                        })
+                        print(2)
+                        conn.send(response)
+                        
+                    elif command == Command.CACHE.value:
+                        # Check authentication
+                        print(3)
+                        if not self._is_authenticated(payload[0]['username']):
+                            print(f"Peer cache {payload[0]['username']} is not authenticated.")
+                            continue
+                        print(4)
+                        for message in payload:
+                            message['time'] = datetime.now().strftime("%H:%M:%S")
+                            with self.messages_lock:
+                                self.messages.append(message)
+                            self.message_queue.put(message)
+                        # No response needed for cache command
+                    elif command == Command.DEBUG.value:
+                        with self.messages_lock and self.authen_lock and self.peer_lock:
+                            print("DEBUG INFO")
+                            print(f"Connected Peers: {[a for _, a in self.connected_peers]}")
+                            print(f"Authenticated Peers: {self.authen_peers}")
+                            print(f"Messages: {self.messages}")
+                        
+                except Exception as e:
+                    print(f"Error handling peer {addr}: {e}")
+                    break
         
         # Remove peer on disconnection
         with self.peer_lock:
@@ -180,6 +222,10 @@ class PeerHost:
             except Exception as e:
                 print(f"Error in broadcast thread: {e}")
                 time.sleep(1)
+
+    def _is_authenticated(self, username):
+        with self.authen_peers_lock:
+            return username in self.authen_peers
 
     def stop(self):
         self.running = False
