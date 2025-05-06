@@ -35,10 +35,10 @@ def client_interface(client: PeerClient):
                     print(f"  - {host['channel_name']} at {host['peer_server_ip']}:{host['peer_server_port']}")
                     
             elif user_input.lower() == "/connected":
-                if client.hosts:
+                if client.channels:
                     print("Connected Channels:")
-                    for host_key in client.hosts:
-                        print(f"  - {host_key[0]}:{host_key[1]}")
+                    for channel_name, info in client.channels.items():
+                        print(f"  - {channel_name} at {info['ip']}:{info['port']}")
                 else:
                     print("Not connected to any channels.")
                     
@@ -49,31 +49,32 @@ def client_interface(client: PeerClient):
                 for host in hosts:
                     if host['channel_name'] == channel_name:
                         target_host = host
-                        print(target_host)
                         break
                     
                 if target_host:
-                    host_key = (target_host['peer_server_ip'], target_host['peer_server_port'])
-                    if host_key in client.hosts:
+                    if channel_name in client.channels:
                         print(f"Already connected to channel: {channel_name}")
                     else:
                         success = client.connect_to_host(target_host)
                         if success:
                             print(f"Joined channel: {channel_name}")
-                            # Display current messages for this host
+                            # Display current messages for this channel
                             with client.messages_lock:
                                 print("Current Messages:")
-                                for msg in client.messages.get(host_key, []):
+                                for msg in client.messages.get(channel_name, []):
                                     # Use ANSI escape codes for coloring
                                     RESET = "\033[0m"
                                     TIME_COLOR = "\033[92m"  # Green for time
                                     USER_COLOR = "\033[94m"  # Blue for username
                                     SELF_COLOR = "\033[97m"  # White for self messages
                                     
+                                    time_str = msg.get('time', '')
                                     if msg['username'] == client.username:
-                                        print(f"{TIME_COLOR}{msg.get('time')}{RESET} {SELF_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
+                                        print(f"{TIME_COLOR}{time_str}{RESET} {SELF_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
                                     else:
-                                        print(f"{TIME_COLOR}{msg.get('time')}{RESET} {USER_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
+                                        print(f"{TIME_COLOR}{time_str}{RESET} {USER_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
+                        client._send_cached_messages(channel_name)
+
                 else:
                     print(f"Channel {channel_name} not found.")
                     
@@ -84,40 +85,23 @@ def client_interface(client: PeerClient):
                 else:
                     channel_name = parts[1].strip()
                     message = parts[2].strip()
-                    hosts = client.get_peer_hosts()
-                    target_host = None
-                    for host in hosts:
-                        if host['channel_name'] == channel_name:
-                            target_host = host
-                            break
-                    if target_host:
-                        host_key = (target_host['peer_server_ip'], target_host['peer_server_port'])
-                        if host_key in client.hosts:
-                            client.send_message(message, host_key)
-                        else:
-                            print(f"Not connected to channel: {channel_name}. Use /join <channel_name> to connect.")
+                    
+                    if channel_name in client.channels:
+                        client.send_message(message, channel_name)
                     else:
-                        print(f"Channel {channel_name} not found.")
+                        print("Not connected to this channel. Message will be cached for later delivery.")
+                        client._cache_message(message, channel_name)
                         
             elif user_input.lower().startswith("/disconnect "):
                 channel_name = user_input.split(" ", 1)[1].strip()
-                hosts = client.get_peer_hosts()
-                target_host = None
-                for host in hosts:
-                    if host['channel_name'] == channel_name:
-                        target_host = host
-                        break
-                if target_host:
-                    host_key = (target_host['peer_server_ip'], target_host['peer_server_port'])
-                    if host_key in client.hosts:
-                        client.disconnect(host_key)
-                    else:
-                        print(f"Not connected to channel: {channel_name}")
+                
+                if channel_name in client.channels:
+                    client.disconnect(channel_name)
                 else:
-                    print(f"Channel {channel_name} not found.")
-                    
+                    print(f"Not connected to channel: {channel_name}")            
+            
             else:
-                print("You are not connected to any channel. Use /join <channel_name> to connect.")
+                print("Invalid command")
         except KeyboardInterrupt:
             client.disconnect()
             break
@@ -152,7 +136,7 @@ python peer.py --tracker-ip 127.0.0.1 --tracker-port 22236 --peer-host-ip 127.0.
     
     # If channel name is provided, run as host as well
     if channel_name:
-        peer_host = PeerHost(channel_name, peer_host_ip, peer_host_port, tracker_ip, tracker_port)
+        peer_host = PeerHost(channel_name, username, peer_host_ip, peer_host_port, tracker_ip, tracker_port)
         Thread(target=peer_server, args=(peer_host,), daemon=True).start()
         print(f"Hosting channel '{channel_name}' on {peer_host_ip}:{peer_host_port}")
     

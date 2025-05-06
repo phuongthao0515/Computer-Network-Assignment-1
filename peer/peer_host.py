@@ -4,15 +4,16 @@ import json
 import queue
 import time
 from datetime import datetime
-from utils.protocol import create_request, parse_request, Command, parse_response, Status
+from utils.protocol import create_request, parse_request, Command, parse_response, Status, create_response
 
 class PeerHost:
-    def __init__(self, channel_name, ip, port, tracker_ip, tracker_port, max_connections=10):
+    def __init__(self, channel_name, owner_peer, ip, port, tracker_ip, tracker_port, max_connections=10):
         # Tracker information
         self.tracker_ip = tracker_ip
         self.tracker_port = tracker_port
         
         # Channel information
+        self.owner_peer = owner_peer
         self.channel_name = channel_name
         self.ip = ip
         self.port = port
@@ -65,21 +66,24 @@ class PeerHost:
         finally:
             self.socket_server.close()
 
-    def host_submission(self):
-        data = create_request(Command.HOST, {
-            "channel_name": self.channel_name,
-            "peer_server_ip": self.ip,
-            "peer_server_port": self.port
-        })
-                
+    # DONE
+    def host_submission(self):                
         with socket.socket() as tracker_socket:
             tracker_socket.connect((self.tracker_ip, self.tracker_port))
-            tracker_socket.send(data)
-            data = tracker_socket.recv(1024)
-            status, payload = parse_response(data)
+            
+            request = create_request(Command.HOST, {
+                "channel_name": self.channel_name,
+                "peer_server_ip": self.ip,
+                "peer_server_port": self.port
+            })
+            tracker_socket.send(request)
+            response = tracker_socket.recv(1024)
+            status, payload = parse_response(response)
+            
             if status != Status.OK.value:
                 print(f"Failed to submit info to tracker: {payload['status']}")
                 return payload['status']
+            
             tracker_socket.close()
         
         return status
@@ -98,14 +102,24 @@ class PeerHost:
                 command, payload = parse_request(data)
                 
                 if command == Command.MESSAGE.value:
-                    message = {
-                        "username": payload['username'],
-                        "message_content": payload['message_content'],
-                        "time": datetime.now().strftime("%H:%M:%S")
-                    }
-                    with self.messages_lock:
-                        self.messages.append(message)
-                    self.message_queue.put((message, addr))
+                    for message in payload:
+                        message['time'] = datetime.now().strftime("%H:%M:%S")
+                        with self.messages_lock:
+                            self.messages.append(message)
+                        self.message_queue.put(message)
+                    response = create_response(Status.OK, {
+                        "status": "success",
+                        "message": "Message received"
+                    })
+                    conn.send(response)
+                    
+                elif command == Command.CACHE.value:
+                    for message in payload:
+                        message['time'] = datetime.now().strftime("%H:%M:%S")
+                        with self.messages_lock:
+                            self.messages.append(message)
+                        self.message_queue.put(message)
+                    # No response needed for cache command
             except Exception as e:
                 print(f"Error handling peer {addr}: {e}")
                 break
@@ -122,26 +136,55 @@ class PeerHost:
     def broadcast_messages(self):
         while self.running:
             try:
-                message, sender_addr = self.message_queue.get(timeout=0.1)
-                message_data = create_request(Command.MESSAGE, message)
+                # Get all available messages from the queue (up to a reasonable limit)
+                messages_to_send = []
+                try:
+                    # Get the first message (with timeout)
+                    message = self.message_queue.get(timeout=0.1)
+                    messages_to_send.append(message)
+                    
+                    # Try to get more messages without blocking (up to 50)
+                    max_batch_size = 50
+                    for _ in range(max_batch_size - 1):
+                        try:
+                            message = self.message_queue.get_nowait()
+                            messages_to_send.append(message)
+                        except queue.Empty:
+                            break
+                except queue.Empty:
+                    continue  # No messages available, go back to the start of the loop
                 
+                # Now broadcast all collected messages
                 with self.peer_lock:
-                    for conn, addr in self.connected_peers:
-                        if addr != sender_addr:  # Prevent sending back to the sender
-                            try:
-                                conn.send(message_data)
-                            except Exception as e:
-                                print(f"Error broadcasting to {addr}: {e}")
-            except queue.Empty:
-                continue
+                    peers = self.connected_peers.copy()
+                
+                # Process each peer outside the lock to minimize lock holding time
+                for conn, addr in peers:
+                    try:
+                        request = create_request(Command.MESSAGE, messages_to_send)
+                        conn.send(request)
+                    except (BrokenPipeError, ConnectionResetError):
+                        print(f"Peer {addr} disconnected. Removing from list.")
+                        with self.peer_lock:
+                            self.connected_peers = [(c, a) for c, a in self.connected_peers if a != addr]
+                            conn.close()
+                    except socket.error as e:
+                        print(f"Socket error with {addr}: {e}")
+                        with self.peer_lock:
+                            self.connected_peers = [(c, a) for c, a in self.connected_peers if a != addr]
+                    except Exception as e:
+                        print(f"Error broadcasting to {addr}: {e}")
+                        with self.peer_lock:
+                            self.connected_peers = [(c, a) for c, a in self.connected_peers if a != addr]
+                    
             except Exception as e:
                 print(f"Error in broadcast thread: {e}")
                 time.sleep(1)
 
-    # def stop(self):
-    #     self.running = False
-    #     self.socket_server.close()
-    #     with self.peer_lock:
-    #         for conn, _ in self.connected_peers:
-    #             conn.close()
-    #         self.connected_peers = []
+    def stop(self):
+        self.running = False
+        self.socket_server.close()
+        with self.peer_lock:
+            for conn, _ in self.connected_peers:
+                conn.close()
+            self.connected_peers = []

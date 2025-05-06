@@ -6,6 +6,7 @@ class Command(Enum):
     HOST = "HOST"
     MESSAGE = "MESSAGE"
     BROADCAST = "BROADCAST"
+    CACHE = "CACHE"
     
 class Status(Enum):
     OK = "OK"
@@ -27,10 +28,19 @@ def create_request(command, payload):
     if command == Command.LIST:
         return f"{command.value}\r\n".encode("utf-8")
     elif command == Command.HOST:
+        # If the payload is a dictionary, convert it to a list of dictionaries
+        if isinstance(payload, dict):
+            payload = [payload]
         return f"{command.value}\r\n{json.dumps(payload)}".encode("utf-8")
     elif command == Command.MESSAGE:
+        # If the payload is a dictionary, convert it to a list of dictionaries
+        if isinstance(payload, dict):
+            payload = [payload]
         return f"{command.value}\r\n{json.dumps(payload)}".encode("utf-8")
-    elif command == Command.BROADCAST:
+    elif command == Command.CACHE:
+        # If the payload is a dictionary, convert it to a list of dictionaries
+        if isinstance(payload, dict):
+            payload = [payload]
         return f"{command.value}\r\n{json.dumps(payload)}".encode("utf-8")
     
 

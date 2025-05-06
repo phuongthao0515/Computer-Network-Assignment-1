@@ -16,14 +16,13 @@ def handle_user_submission(addr, conn):
             response = create_response(Status.OK, peers)
             conn.send(response)
         elif command == "HOST":
-            peers.append({
-                "channel_name": payload['channel_name'],
-                "peer_server_ip": payload['peer_server_ip'],
-                "peer_server_port": payload['peer_server_port'],
-            })
+            # A host can have multiple channels
+            for peer in payload:
+                peers.append(peer)
+                
             response = create_response(Status.OK, {
                 "status": "success",
-                "channel_name": payload['channel_name'],
+                "channel_name": [peer["channel_name"] for peer in payload],
             })
             conn.send(response)
         elif command == "MESSAGE":
