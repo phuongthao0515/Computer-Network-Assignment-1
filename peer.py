@@ -143,23 +143,50 @@ class ChannelListPage(Page):
         # Create two frames for channels: available and joined
         channels_container = tk.Frame(self.main_container, bg="#f0f0f0")
         channels_container.pack(fill="both", expand=True)
-        
-        # Available channels section
+
+        # --- Available channels scrollable setup ---
         available_frame = tk.LabelFrame(channels_container, text="Available Channels", font=("Arial", 12, "bold"), 
-                                       bg="#f0f0f0", padx=10, pady=10)
+                                    bg="#f0f0f0", padx=10, pady=10)
         available_frame.pack(side=tk.LEFT, fill="both", expand=True, padx=(0, 10))
-        
-        self.available_channels_container = tk.Frame(available_frame, bg="#f0f0f0")
-        self.available_channels_container.pack(fill="both", expand=True)
-        
-        # Joined channels section
+
+        # Canvas + Scrollbar
+        avail_canvas = tk.Canvas(available_frame, bg="#f0f0f0", highlightthickness=0)
+        avail_scroll = tk.Scrollbar(available_frame, orient="vertical", command=avail_canvas.yview)
+        avail_canvas.configure(yscrollcommand=avail_scroll.set)
+
+        avail_scroll.pack(side="right", fill="y")
+        avail_canvas.pack(side="left", fill="both", expand=True)
+
+        # This is the interior frame that you’ll actually pack your widgets into:
+        self.available_channels_container = tk.Frame(avail_canvas, bg="#f0f0f0")
+        # Put it into the canvas
+        avail_canvas.create_window((0,0), window=self.available_channels_container, anchor="nw")
+
+        # Keep the scroll region in sync with the frame’s size:
+        def _on_avail_configure(event):
+            avail_canvas.configure(scrollregion=avail_canvas.bbox("all"))
+        self.available_channels_container.bind("<Configure>", _on_avail_configure)
+
+
+        # --- Joined channels scrollable setup ---
         joined_frame = tk.LabelFrame(channels_container, text="Joined Channels", font=("Arial", 12, "bold"), 
                                     bg="#f0f0f0", padx=10, pady=10)
         joined_frame.pack(side=tk.RIGHT, fill="both", expand=True, padx=(10, 0))
-        
-        self.joined_channels_container = tk.Frame(joined_frame, bg="#f0f0f0")
-        self.joined_channels_container.pack(fill="both", expand=True)
-        
+
+        join_canvas = tk.Canvas(joined_frame, bg="#f0f0f0", highlightthickness=0)
+        join_scroll = tk.Scrollbar(joined_frame, orient="vertical", command=join_canvas.yview)
+        join_canvas.configure(yscrollcommand=join_scroll.set)
+
+        join_scroll.pack(side="right", fill="y")
+        join_canvas.pack(side="left", fill="both", expand=True)
+
+        self.joined_channels_container = tk.Frame(join_canvas, bg="#f0f0f0")
+        join_canvas.create_window((0,0), window=self.joined_channels_container, anchor="nw")
+
+        def _on_join_configure(event):
+            join_canvas.configure(scrollregion=join_canvas.bbox("all"))
+        self.joined_channels_container.bind("<Configure>", _on_join_configure)
+                
         # Open Chat button
         open_chat_button = tk.Button(self.main_container, text="Open Chat", font=("Arial", 12, "bold"), 
                                    bg="#4CAF50", fg="white", command=self.open_chat)
@@ -242,7 +269,7 @@ class ChannelListPage(Page):
         host_ip = channel.get("peer_server_ip")
         host_port = channel.get("peer_server_port")
         
-        success = self.controller.client.connect_to_host(host_ip, host_port)
+        success = joinChannel(channel_name)
         if success:
             messagebox.showinfo("Success", f"Joined channel: {channel_name}")
             self.load_channels()
@@ -270,7 +297,9 @@ class ChannelListPage(Page):
     
     def logout(self):
         # Disconnect from all channels
-        self.controller.client.disconnect()
+        for channel in getAllConnectedChannel():
+            print(channel)
+            self.controller.client.disconnect(channel['channel_name'])
         # Reset username
         self.controller.username = "User"
         # Go back to login page
@@ -316,6 +345,18 @@ class MessagingPage(Page):
         self.channel_name_label = tk.Label(self.chat_header, text="Select a Channel", 
                                          font=("Arial", 14, "bold"), bg="#3498db", fg="white", padx=10, pady=10)
         self.channel_name_label.pack(side=tk.LEFT)
+
+        # Manual refresh button
+        self.refresh_button = tk.Button(
+            self.chat_header,
+            text="🔄",  # or "Refresh"
+            font=("Arial", 10),
+            bg="#2980b9",
+            fg="white",
+            relief=tk.FLAT,
+            command=self.manual_refresh
+        )
+        self.refresh_button.pack(side=tk.LEFT, padx=5)
         
         # Chat messages
         self.messages_frame = tk.Frame(self.chat_area, bg="#f0f0f0")
@@ -353,7 +394,6 @@ class MessagingPage(Page):
             no_channels_label.pack(fill="x")
             return
         
-        print("Connected: ", connected_channels)
         # Create channel buttons
         for channel in connected_channels:
             channel_name = channel.get("channel_name")
@@ -373,7 +413,8 @@ class MessagingPage(Page):
             channel_btn.pack(fill="x", pady=2)
         
         # Select the first channel by default
-        first_channel = list(connected_channels)[0]
+        print("Connected: ", connected_channels)
+        first_channel = list(connected_channels)[1]
         first_channel_name = first_channel.get("channel_name")
         self.select_channel(first_channel_name)
         
@@ -381,6 +422,7 @@ class MessagingPage(Page):
         self.update_messages()
     
     def select_channel(self, channel_name):
+        print("Initiate select channel")
         self.current_channel = channel_name
         self.channel_name_label.config(text=channel_name)
         
@@ -388,14 +430,19 @@ class MessagingPage(Page):
         self.load_channel_messages(channel_name)
     
     def load_channel_messages(self, channel_name):
+        print("Run load channel")
         self.chat_display.config(state=tk.NORMAL)
         self.chat_display.delete(1.0, tk.END)
         
         # Get messages for this channel
         messages = getMessage(channel_name)
+        print("Channel Name: ", channel_name)
+        print(messages)
         
         for msg in messages:
-            time_str = msg.get('time', datetime.now().strftime("%H:%M:%S"))
+            if 'time' not in msg:
+                continue
+            time_str = msg['time']
             username = msg.get('username', 'Unknown')
             content = msg.get('message_content', '')
             
@@ -443,6 +490,10 @@ class MessagingPage(Page):
         
         # Schedule the next update
         self.after(1000, self.update_messages)
+    
+    def manual_refresh(self):
+        if self.current_channel:
+            self.load_channel_messages(self.current_channel)
 
 class App(tk.Tk):
     def __init__(self, client):
@@ -482,110 +533,70 @@ class App(tk.Tk):
 ########################################
 # Backend Logic Section
 ########################################
+
 def peer_server(peer_host: PeerHost):
     peer_host.listen()
 
+def getClient():
+    return client
 
-# DONE
-def client_interface(client: PeerClient):
-    """Interactive interface for the client to interact with peer hosts."""
-    print("Welcome to the Peer Chat Client!")
-    print("Commands:")
-    print("  /list - list all available channels")
-    print("  /join <channel_name> - Join a specific channel")
-    print("  /connected - list all connected channels")
-    print("  /sendto <channel_name> <message> - Send a message to a specific channel")
-    print("  /disconnect <channel_name> - Disconnect from a specific channel")
-    print("  /exit - Exit the application")
-    print("  Any other input will be sent as a message to all connected channels.")
-    
-    while True:
-        try:
-            user_input = input()
-            
-            if user_input.lower() == "/exit":
-                client.disconnect()
-                break
-            
-            elif user_input.lower() == "/list":
-                hosts = client.get_peer_hosts()
-                print("Available Channels:")
-                for host in hosts:
-                    print(f"  - {host['channel_name']} at {host['peer_server_ip']}:{host['peer_server_port']}")
-                    
-            elif user_input.lower() == "/connected":
-                if client.channels:
-                    print("Connected Channels:")
-                    for channel_name, info in client.channels.items():
-                        print(f"  - {channel_name} at {info['ip']}:{info['port']}")
-                else:
-                    print("Not connected to any channels.")
-                    
-            elif user_input.lower().startswith("/join "):
-                channel_name = user_input.split(" ", 1)[1].strip()
-                hosts = client.get_peer_hosts()
-                target_host = None
-                for host in hosts:
-                    if host['channel_name'] == channel_name:
-                        target_host = host
-                        break
-                    
-                if target_host:
-                    if channel_name in client.channels:
-                        print(f"Already connected to channel: {channel_name}")
-                    else:
-                        success = client.connect_to_host(target_host)
-                        if success:
-                            print(f"Joined channel: {channel_name}")
-                            # Display current messages for this channel
-                            with client.messages_lock:
-                                print("Current Messages:")
-                                for msg in client.messages.get(channel_name, []):
-                                    # Use ANSI escape codes for coloring
-                                    RESET = "\033[0m"
-                                    TIME_COLOR = "\033[92m"  # Green for time
-                                    USER_COLOR = "\033[94m"  # Blue for username
-                                    SELF_COLOR = "\033[97m"  # White for self messages
-                                    
-                                    time_str = msg.get('time', '')
-                                    if msg['username'] == client.username:
-                                        print(f"{TIME_COLOR}{time_str}{RESET} {SELF_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
-                                    else:
-                                        print(f"{TIME_COLOR}{time_str}{RESET} {USER_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
-                        client._send_cached_messages(channel_name)
+def exitFunc():
+    for channel in getAllConnectedChannel():
+        client.disconnect(channel['channel_name'])
 
-                else:
-                    print(f"Channel {channel_name} not found.")
-                    
-            elif user_input.lower().startswith("/sendto "):
-                parts = user_input.split(" ", 2)
-                if len(parts) < 3:
-                    print("Usage: /sendto <channel_name> <message>")
-                else:
-                    channel_name = parts[1].strip()
-                    message = parts[2].strip()
-                    
-                    if channel_name in client.channels:
-                        client.send_message(message, channel_name)
-                    else:
-                        print("Not connected to this channel. Message will be cached for later delivery.")
-                        client._cache_message(message, channel_name)
-                        
-            elif user_input.lower().startswith("/disconnect "):
-                channel_name = user_input.split(" ", 1)[1].strip()
-                
-                if channel_name in client.channels:
-                    client.disconnect(channel_name)
-                else:
-                    print(f"Not connected to channel: {channel_name}")            
-            
-            else:
-                print("Invalid command")
-        except KeyboardInterrupt:
-            client.disconnect()
+def getAllChannel():
+    return client.get_peer_hosts()
+
+def getAllConnectedChannel():
+    channel_list = []
+    print("CH", client.channels)
+    if client.channels:
+        for key, host_key in client.channels.items():
+            channel_list.append( {"channel_name": key, "peer-server-ip" : host_key['ip'], "peer_server_port" : host_key['port']} )
+    return channel_list
+
+def joinChannel(channel_name):
+    hosts = client.get_peer_hosts()
+    target_host = None
+    for host in hosts:
+        if host['channel_name'] == channel_name:
+            target_host = host
             break
-        except Exception as e:
-            print(f"Error in client interface: {e}")
+        
+    if target_host:
+        if channel_name in client.channels:
+            return "Error: Already connected to channel"
+        else:
+            success = client.connect_to_host(target_host)
+            if success:
+                print(f"Joined channel: {channel_name}")
+                return "Success"
+
+    else:
+        return "Error: Channel not found"
+        
+def getMessage(channel_name):
+        # Display current messages for this channel
+    with client.messages_lock:
+        all_message = client.messages.get(channel_name, [])
+        client._send_cached_messages(channel_name)
+        return all_message
+
+def sendMessageTo(channel_name, message):
+    if channel_name in client.channels:
+        client.send_message(message, channel_name)
+        return "Success"
+    else:
+        client._cache_message(message, channel_name)
+        return "Error: Not connected to this channel. Message will be cached for later delivery."
+        
+    
+def disconectChannel(channel_name):
+    if channel_name in client.channels:
+        client.disconnect(channel_name)
+        return "Success"
+    else:
+        return "Error: Not connected to this channel"   
 
 if __name__ == "__main__": 
     parser = argparse.ArgumentParser(
@@ -598,10 +609,7 @@ if __name__ == "__main__":
     parser.add_argument('--peer-host-port', type=int, default=0, help='Port for hosting a peer server, 0 for random')
     parser.add_argument('--channel-name', default='', help='Name of the channel to host, if empty, only client mode')
     parser.add_argument('--username', default='User', help='Username for the client')
-    '''
-python peer.py --tracker-ip 127.0.0.1 --tracker-port 22236 --peer-host-ip 127.0.0.1 --peer-host-port 20000 --channel-name first --username ken
-python peer.py --tracker-ip 127.0.0.1 --tracker-port 22236 --peer-host-ip 127.0.0.1 --peer-host-port 20001 --channel-name second --username ben
-    '''
+    
     args = parser.parse_args()
     tracker_ip = args.tracker_ip
     tracker_port = args.tracker_port
@@ -619,5 +627,10 @@ python peer.py --tracker-ip 127.0.0.1 --tracker-port 22236 --peer-host-ip 127.0.
         Thread(target=peer_server, args=(peer_host,), daemon=True).start()
         print(f"Hosting channel '{channel_name}' on {peer_host_ip}:{peer_host_port}")
     
-    # Start client interface
-    client_interface(client)
+    # Start the GUI
+    app = App(client)
+    
+    # When window is closed, disconnect from all peers
+    app.protocol("WM_DELETE_WINDOW", lambda: [exitFunc(), app.destroy()])
+    
+    app.mainloop()

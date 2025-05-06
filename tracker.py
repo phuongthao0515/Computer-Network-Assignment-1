@@ -5,11 +5,7 @@ from utils.protocol import create_response, parse_request, Status
 
 def handle_user_submission(addr, conn):
     try:
-<<<<<<< HEAD
-        data = conn.recv(4096).decode("utf-8")
-=======
         data = conn.recv(4096)
->>>>>>> a3c6e008a6135d7897cffa802128250c860b1650
         if not data:
             print("No data received from", addr)
             return
@@ -18,19 +14,6 @@ def handle_user_submission(addr, conn):
         
         if command == "LIST":
             response = create_response(Status.OK, peers)
-<<<<<<< HEAD
-            conn.send(response.encode("utf-8"))
-        elif command == "HOST":
-            peers.append({
-                "channel_name": payload['channel_name'],
-                "peer_server_ip": payload['peer_server_ip'],
-                "peer_server_port": payload['peer_server_port'],
-            })
-            response = create_response(Status.OK, {
-                "status": "success",
-                "channel_name": payload['channel_name'],
-            }).encode("utf-8")
-=======
             conn.send(response)
         elif command == "HOST":
             # A host can have multiple channels
@@ -41,21 +24,15 @@ def handle_user_submission(addr, conn):
                 "status": "success",
                 "channel_name": [peer["channel_name"] for peer in payload],
             })
->>>>>>> a3c6e008a6135d7897cffa802128250c860b1650
             conn.send(response)
         elif command == "MESSAGE":
             pass
         
     except ValueError as e:
         print("Error parsing data:", e)
-<<<<<<< HEAD
-        conn.close()
-        return
-=======
         return
     finally:
         conn.close()
->>>>>>> a3c6e008a6135d7897cffa802128250c860b1650
 
 def listen(ip, port):
     try:
