@@ -114,9 +114,13 @@ class PeerHost:
                 print(f"Sending UNAUTHORIZED response to {addr}")
                 conn.close()
                 return
-            else:
-                conn.send(create_response(Status.OK, {}))
-                print(f"Peer {payload['username']} is authenticated.")
+            
+        # Send authentication response
+        conn.send(create_response(Status.OK, {
+            "status": "success",
+            "message": "Authenticated successfully"
+        }))
+        print(f"Peer {payload['username']} authenticated successfully.")
         # Send initial messages to the new peer
         with self.messages_lock:
             request = create_request(Command.MESSAGE, self.messages)
