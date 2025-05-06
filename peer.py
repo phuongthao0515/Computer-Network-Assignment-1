@@ -19,6 +19,9 @@ def client_interface(client: PeerClient):
     print("  /sendto <channel_name> <message> - Send a message to a specific channel")
     print("  /disconnect <channel_name> - Disconnect from a specific channel")
     print("  /exit - Exit the application")
+    print("  /debug <channel_name> - Send debug information to a specific channel")
+    print("  /refresh <channel_name> - Refresh messages for a specific channel")
+    print("  /view <channel_name> <0 or 1> - View messages for a specific channel")
     print("  Any other input will be sent as a message to all connected channels.")
     
     while True:
@@ -116,6 +119,21 @@ def client_interface(client: PeerClient):
                         print(client.messages.get(channel_name, []))
                 else:
                     print(f"Not connected to channel: {channel_name}")
+                    
+            # /view <channel_name> <0 or 1>
+            elif user_input.lower().startswith("/view"):
+                parts = user_input.split(" ", 2)
+                if len(parts) < 3:
+                    print("Usage: /view <channel_name> <0 or 1>")
+                else:
+                    channel_name = parts[1].strip()
+                    view_type = int(parts[2].strip())
+                    
+                    if channel_name in client.channels:
+                        client.change_view(channel_name, view_type)
+                        print(f"View type for channel '{channel_name}' set to {view_type}.")
+                    else:
+                        print(f"Not connected to channel: {channel_name}")
             
             else:
                 print("Invalid command")

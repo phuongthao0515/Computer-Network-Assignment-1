@@ -10,6 +10,9 @@ class Command(Enum):
     SIGNIN = "SIGNIN"
     SIGNUP = "SIGNUP"
     GUEST = "GUEST"
+    CONNECT = "CONNECT"
+    VIEW = "VIEW"
+    DEBUG = "DEBUG"
     
 class Status(Enum):
     OK = "OK"
@@ -54,6 +57,12 @@ def create_request(command, payload, separator="\\"):
         return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
     elif command == Command.GUEST:
         return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
+    elif command == Command.CONNECT:
+        return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
+    elif command == Command.VIEW:
+        return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
+    elif command == Command.DEBUG:
+        return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
     
 
 def parse_request(response, isSeparated = False):
@@ -71,6 +80,7 @@ def parse_request(response, isSeparated = False):
     try:
         if not isSeparated:
             response = response.decode("utf-8")
+            response = response.split("\\", 1)[0]
         command, payload = response.split("\r\n", 1)
         if payload:
             payload = json.loads(payload)

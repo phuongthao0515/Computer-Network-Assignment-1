@@ -29,7 +29,14 @@ class PeerHost:
             "role": "owner",
             "status": "online",
         }
+        # self.authen_peers['ben'] = {
+        #     "role": "user",
+        #     "status": "online",
+        # }
         self.authen_peers_lock = Lock()
+        
+        # Viewers permission
+        self.view_permission = False
         
         # Messages information
         self.messages = [
@@ -97,6 +104,19 @@ class PeerHost:
         return status
     
     def handle_peer_connection(self, conn, addr):
+        identity = conn.recv(1024)
+        command, payload = parse_request(identity)
+        if not self.view_permission:
+            # Check if the peer is authenticated
+            if not self._is_authenticated(payload['username']):
+                print(f"Peer {payload['username']} is not authenticated.")
+                conn.send(create_response(Status.UNAUTHORIZED, {}))
+                print(f"Sending UNAUTHORIZED response to {addr}")
+                conn.close()
+                return
+            else:
+                conn.send(create_response(Status.OK, {}))
+                print(f"Peer {payload['username']} is authenticated.")
         # Send initial messages to the new peer
         with self.messages_lock:
             request = create_request(Command.MESSAGE, self.messages)
@@ -153,11 +173,27 @@ class PeerHost:
                             self.message_queue.put(message)
                         # No response needed for cache command
                     elif command == Command.DEBUG.value:
-                        with self.messages_lock and self.authen_lock and self.peer_lock:
+                        with self.messages_lock and self.authen_peers_lock and self.peer_lock:
                             print("DEBUG INFO")
                             print(f"Connected Peers: {[a for _, a in self.connected_peers]}")
                             print(f"Authenticated Peers: {self.authen_peers}")
                             print(f"Messages: {self.messages}")
+                            print(f"View Permission: {self.view_permission}")
+                            
+                    elif command == Command.VIEW.value:
+                        if payload['username'] == self.owner_peer:
+                            self.view_permission = bool(payload['permission'])
+                            response = create_response(Status.OK, {
+                                "status": "success",
+                                "message": "Permission updated"
+                            })
+                            conn.send(response)
+                        else:
+                            response = create_response(Status.UNAUTHORIZED, {
+                                "status": "failure",
+                                "message": "Permission denied"
+                            })
+                            conn.send(response)
                         
                 except Exception as e:
                     print(f"Error handling peer {addr}: {e}")
@@ -223,6 +259,9 @@ class PeerHost:
     def _is_authenticated(self, username):
         with self.authen_peers_lock:
             return username in self.authen_peers
+
+    def set_view_permission(self, permission):
+        self.view_permission = permission
 
     def stop(self):
         self.running = False

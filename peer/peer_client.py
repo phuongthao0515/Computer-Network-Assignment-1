@@ -64,6 +64,18 @@ class PeerClient:
             new_socket = socket.socket()
             new_socket.connect((host_ip, host_port))
             
+            new_socket.send(create_request(Command.CONNECT, {
+                "username": self.username
+            }))
+            response = new_socket.recv(1024)
+            print(response)
+            command, payload = parse_response(response)
+            if command == Status.UNAUTHORIZED.value:
+                print(f"Error connecting to host: {command}")
+                return False
+            else:
+                print(f"Connected to host: {command}")
+            
             # Store channel information
             self.channels[channel_name] = {
                 'ip': host_ip,
@@ -229,6 +241,22 @@ class PeerClient:
                 # No specific channel, cache as general message
                 self._cache_message(content, None)
         return True
+    
+    def change_view(self, channel_name, view):
+        """Change the view of messages for a specific channel."""
+        if channel_name not in self.channels:
+            print(f"Not connected to channel '{channel_name}'")
+            return
+        
+        request = create_request(Command.VIEW, {
+            "username": self.username,
+            "permission": view,
+        })
+        try:
+            self.channels[channel_name]['socket'].send(request)
+            print(f"View changed to {view} for channel '{channel_name}'")
+        except Exception as e:
+            print(f"Error changing view for channel '{channel_name}': {e}")
     
     def debug(self, channel_name):
         """Send a debug command to a specific channel."""
