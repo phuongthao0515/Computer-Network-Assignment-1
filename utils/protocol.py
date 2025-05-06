@@ -33,37 +33,29 @@ def create_request(command, payload, separator="\\"):
     """
     # Switch case for command
     if command == Command.LIST:
-        return f"{command.value}\r\n{separator}".encode("utf-8")
-    elif command == Command.HOST:
+        request = f"{command.value}\r\n"
+    elif command in [
+        Command.HOST,
+        Command.MESSAGE,
+        Command.CACHE,
+    ]:
         # If the payload is a dictionary, convert it to a list of dictionaries
         if isinstance(payload, dict):
             payload = [payload]
-        return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
-    elif command == Command.MESSAGE:
-        # If the payload is a dictionary, convert it to a list of dictionaries
-        if isinstance(payload, dict):
-            payload = [payload]
-        return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
-    elif command == Command.CACHE:
-        # If the payload is a dictionary, convert it to a list of dictionaries
-        if isinstance(payload, dict):
-            payload = [payload]
-        return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
-    elif command == Command.BROADCAST:
-        return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
-    elif command == Command.SIGNIN:
-        return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
-    elif command == Command.SIGNUP:
-        return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
-    elif command == Command.GUEST:
-        return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
-    elif command == Command.CONNECT:
-        return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
-    elif command == Command.VIEW:
-        return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
-    elif command == Command.DEBUG:
-        return f"{command.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
+        request = f"{command.value}\r\n{json.dumps(payload)}"
     
+    elif command in [
+        Command.BROADCAST, 
+        Command.SIGNIN, 
+        Command.SIGNUP, 
+        Command.GUEST,
+        Command.CONNECT, 
+        Command.VIEW, 
+        Command.DEBUG
+        ]:
+        request = f"{command.value}\r\n{json.dumps(payload)}"
+    
+    return (request + separator).encode("utf-8")
 
 def parse_request(response, isSeparated = False):
     """
