@@ -1,10 +1,10 @@
 import socket
 from threading import Thread, Lock
-import json
 import queue
 import time
+from uuid import uuid4
 from datetime import datetime
-from utils.protocol import create_request, parse_request, Command, parse_response, Status, create_response
+from utils.protocol import create_request, parse, Command, Status, create_response
 
 class PeerHost:
     def __init__(self, channel_name, owner_peer, ip, port, tracker_ip, tracker_port, max_connections=10):
@@ -51,6 +51,10 @@ class PeerHost:
         self.socket_server = socket.socket()
         self.socket_server.bind((self.ip, self.port))
         
+        # Request tracking mechanism
+        self.pending_responses = {}
+        self.response_queues_lock = Lock()
+        
         # Flag to control threads
         self.running = True
 
@@ -81,51 +85,59 @@ class PeerHost:
         finally:
             self.socket_server.close()
 
-    # DONE
-    def host_submission(self):                
-        with socket.socket() as tracker_socket:
-            tracker_socket.connect((self.tracker_ip, self.tracker_port))
-            
-            request = create_request(Command.HOST, {
-                "channel_name": self.channel_name,
-                "peer_server_ip": self.ip,
-                "peer_server_port": self.port
-            })
-            tracker_socket.send(request)
-            response = tracker_socket.recv(1024)
-            status, payload = parse_response(response)
-            
-            if status != Status.OK.value:
-                print(f"Failed to submit info to tracker: {payload['status']}")
-                return payload['status']
-            
+    # OK
+    def host_submission(self):
+        try:             
+            with socket.socket() as tracker_socket:
+                tracker_socket.connect((self.tracker_ip, self.tracker_port))
+                
+                # One time socket connection so no need to keep it open
+                request = create_request(Command.HOST, {
+                    "channel_name": self.channel_name,
+                    "peer_server_ip": self.ip,
+                    "peer_server_port": self.port
+                })
+                tracker_socket.send(request)
+                
+                response = tracker_socket.recv(1024)
+                status, _, _ = parse(response)
+                
+                if status == Status.OK.value:
+                    print(f"Successfully submitted info to tracker")
+                else:
+                    print(f"Unexpected response from tracker: {status}")
+                           
+            return status
+        except Exception as e:
+            print(f"Error connecting to tracker: {e}")
+            return "ERROR"
+        finally:
             tracker_socket.close()
-        
-        return status
     
+    # 
     def handle_peer_connection(self, conn, addr):
-        identity = conn.recv(1024)
-        command, payload = parse_request(identity)
+        # Handling CONNECT command
+        connect_request = conn.recv(1024)
+        command, payload, request_id = parse(connect_request)
+        
+        if command != Command.CONNECT.value:
+            print(f"Invalid command from {addr}: {command}")
+            conn.send(create_response(request_id, Status.REQUEST_ERROR, {}))
+            conn.close()
+            return
+        
         if not self.view_permission:
-            # Check if the peer is authenticated
             if not self._is_authenticated(payload['username']):
                 print(f"Peer {payload['username']} is not authenticated.")
-                conn.send(create_response(Status.UNAUTHORIZED, {}))
-                print(f"Sending UNAUTHORIZED response to {addr}")
+                conn.send(create_response(request_id, Status.UNAUTHORIZED, {}))
                 conn.close()
                 return
             
-        # Send authentication response
-        conn.send(create_response(Status.OK, {
-            "status": "success",
-            "message": "Authenticated successfully"
-        }))
-        print(f"Peer {payload['username']} authenticated successfully.")
-        # Send initial messages to the new peer
         with self.messages_lock:
-            request = create_request(Command.MESSAGE, self.messages)
-            conn.send(request)
+            conn.send(create_response(request_id, Status.OK, self.messages))
+        print(f"Peer {payload['username']} authenticated successfully.")
         
+        # Listening loop
         buffer = ""
         while self.running:
             data = conn.recv(1024)
@@ -133,21 +145,18 @@ class PeerHost:
             if not data:
                 break
             
-            while '\\' in buffer:
-                # Split the buffer into individual requests
-                request, buffer = buffer.split('\\', 1)
-                
+            while '\n' in buffer:
+                request, buffer = buffer.split('\n', 1)
                 if not request:
                     continue
                 
-                # Parse the request
                 try: 
-                    command, payload = parse_request(request, isSeparated=True)
+                    command, payload, request_id = parse(request, isSeparated=True)
                     if command == Command.MESSAGE.value:
                         # Check authentication
                         if not self._is_authenticated(payload[0]['username']):
                             print(f"Peer message {payload[0]['username']} is not authenticated.")
-                            conn.send(create_response(Status.UNAUTHORIZED, {}))
+                            conn.send(create_response(request_id, Status.UNAUTHORIZED, {}))
                             print(f"Sending UNAUTHORIZED response to {addr}")
                             continue
 
@@ -156,25 +165,10 @@ class PeerHost:
                             with self.messages_lock:
                                 self.messages.append(message)
                             self.message_queue.put(message)
-                        response = create_response(Status.OK, {
-                            "status": "success",
-                            "message": "Message received"
-                        })
+                        response = create_response(request_id, Status.OK, {})
 
                         conn.send(response)
                         
-                    elif command == Command.CACHE.value:
-                        # Check authentication
-
-                        if not self._is_authenticated(payload[0]['username']):
-                            print(f"Peer cache {payload[0]['username']} is not authenticated.")
-                            continue
-
-                        for message in payload:
-                            message['time'] = datetime.now().strftime("%H:%M:%S")
-                            with self.messages_lock:
-                                self.messages.append(message)
-                            self.message_queue.put(message)
                         # No response needed for cache command
                     elif command == Command.DEBUG.value:
                         with self.messages_lock and self.authen_peers_lock and self.peer_lock:
@@ -187,17 +181,14 @@ class PeerHost:
                     elif command == Command.VIEW.value:
                         if payload['username'] == self.owner_peer:
                             self.view_permission = bool(payload['permission'])
-                            response = create_response(Status.OK, {
-                                "status": "success",
-                                "message": "Permission updated"
-                            })
+                            response = create_response(request_id, Status.OK, {})
                             conn.send(response)
                         else:
-                            response = create_response(Status.UNAUTHORIZED, {
-                                "status": "failure",
-                                "message": "Permission denied"
-                            })
+                            response = create_response(request_id, Status.UNAUTHORIZED, {})
                             conn.send(response)
+                            
+                    # elif command == Command.AUTHORIZE.value:
+                        
                         
                 except Exception as e:
                     print(f"Error handling peer {addr}: {e}")
@@ -208,10 +199,6 @@ class PeerHost:
             self.connected_peers = [(c, a) for c, a in self.connected_peers if a != addr]
         conn.close()
 
-    # NOT DONE: 
-    # Messages should be delivered in list rather than one by one -> Change the protocol, remove BROADCAST command
-    # Fetch all messages from the queue and send them to the peers
-    # May need thread pooling for sending messages at good performance
     def broadcast_messages(self):
         while self.running:
             try:
@@ -274,3 +261,36 @@ class PeerHost:
             for conn, _ in self.connected_peers:
                 conn.close()
             self.connected_peers = []
+            
+    def send_request_and_wait_response(self, conn, command, payload, timeout=5.0):
+        request_id = str(uuid4())
+        request = create_request(command, payload, request_id)
+        
+        # Response queue
+        response_queue = queue.Queue()
+        
+        # Register the request
+        with self.response_queues_lock:
+            self.pending_responses[request_id] = response_queue
+            
+        try: 
+            conn.send(request)
+            
+            try: 
+                # Wait for response
+                response = response_queue.get(timeout=timeout)
+                status, payload, _ = parse(response)
+                return status, payload
+            except queue.Empty:
+                print(f"Request timed out after {timeout} seconds")
+                return None, None
+        
+        except Exception as e:
+            print(f"Error sending request: {e}")
+            return None, None
+        
+        finally:
+            # Unregister the request
+            with self.response_queues_lock:
+                if request_id in self.pending_responses:
+                    del self.pending_responses[request_id]

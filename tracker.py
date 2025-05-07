@@ -1,7 +1,7 @@
 import socket
 from threading import Thread
 import json
-from utils.protocol import create_response, parse_request, Status
+from utils.protocol import create_response, parse, Status
 
 def handle_user_submission(addr, conn):
     # Buffer to handle multiple requests at once
@@ -16,31 +16,32 @@ def handle_user_submission(addr, conn):
             
             buffer += data.decode("utf-8")
             
-            while '\\' in buffer:
+            while '\n' in buffer:
                 # Split the buffer into individual requests
-                request, buffer = buffer.split('\\', 1)
+                request, buffer = buffer.split('\n', 1)
                 
                 if not request:
                     continue
                 
                 # Parse the request
-                command, payload = parse_request(request, isSeparated=True)
+                command, payload, request_id = parse(request, isSeparated=True)
                 
                 if command == "LIST":
-                    response = create_response(Status.OK, peers)
+                    response = create_response(request_id, Status.OK, peers)
                     conn.send(response)
+                    
+                # Only command from host to tracker (except SYNC)
                 elif command == "HOST":
-                    # A host can have multiple channels
-                    for peer in payload:
-                        peers.append(peer)
-                        
-                    response = create_response(Status.OK, {
-                        "status": "success",
-                        "channel_name": [peer["channel_name"] for peer in payload],
+                    peers.append({
+                        'channel_name': payload['channel_name'],
+                        'peer_server_ip': payload['peer_server_ip'],
+                        'peer_server_port': payload['peer_server_port'],
                     })
+                    response = create_response(request_id, Status.OK, {})
                     conn.send(response)
-                elif command == "MESSAGE":
-                    pass
+                
+                else:
+                    print(f"Command not serve {command}")
             
     except ValueError as e:
         print("Error parsing data:", e)

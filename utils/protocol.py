@@ -1,18 +1,18 @@
 import json
 from enum import Enum
+from uuid import uuid4
 
 class Command(Enum):
     LIST = "LIST"
     HOST = "HOST"
     MESSAGE = "MESSAGE"
-    BROADCAST = "BROADCAST"
-    CACHE = "CACHE"
     SIGNIN = "SIGNIN"
     SIGNUP = "SIGNUP"
     GUEST = "GUEST"
     CONNECT = "CONNECT"
     VIEW = "VIEW"
     DEBUG = "DEBUG"
+    AUTHORIZE = "AUTHORIZE"
     
 class Status(Enum):
     OK = "OK"
@@ -20,105 +20,67 @@ class Status(Enum):
     SERVER_ERROR = "SERVER_ERROR"
     UNAUTHORIZED = "UNAUTHORIZED"
     
-def create_request(command, payload, separator="\\"):
+def create_request(command, payload = {}, request_id = None, separator="\n"):
     """
     Create a request string to be sent to the tracker or peer.
     
     Args:
         command (Command): The command to be executed.
-        payload (dict): The data associated with the command.
+        payload (dict or list): The data associated with the command.
+        request_id (str, optional): A unique identifier for the request. If None, a UUID will be generated.
+        separator (str, optional): The string used to terminate the request. Defaults to newline character.
         
     Returns:
-        str: The formatted request string.
+        str: The formatted request string in the format "command-{json data}{separator}".
     """
-    # Switch case for command
-    if command == Command.LIST:
-        request = f"{command.value}\r\n"
-    elif command in [
-        Command.HOST,
-        Command.MESSAGE,
-        Command.CACHE,
-    ]:
+    request_body = {}
+    
+    # 1. Add request_id
+    if request_id is None:
+        request_id = str(uuid4())
+    request_body['id'] = request_id
+    
+    # 2. Convert to list
+    if command in [Command.MESSAGE]:
         # If the payload is a dictionary, convert it to a list of dictionaries
         if isinstance(payload, dict):
             payload = [payload]
-        request = f"{command.value}\r\n{json.dumps(payload)}"
     
-    elif command in [
-        Command.BROADCAST, 
-        Command.SIGNIN, 
-        Command.SIGNUP, 
-        Command.GUEST,
-        Command.CONNECT, 
-        Command.VIEW, 
-        Command.DEBUG
-        ]:
-        request = f"{command.value}\r\n{json.dumps(payload)}"
-    
-    return (request + separator).encode("utf-8")
+    # 3. Add payload
+    request_body['payload'] = payload
+    return f"{command.value}-{json.dumps(request_body)}{separator}".encode('utf-8')
 
-def parse_request(response, isSeparated = False):
-    """
-    Parse the response string from the tracker or peer.
-    
-    Args:
-        response (str): The response string to be parsed.
-        isSeparated (bool): False: not using separater => response hasn't been decode
-                            True: using separater => response has been decoded
-
-    Returns:
-        dict: The parsed response data.
-    """
-    try:
-        if not isSeparated:
-            response = response.decode("utf-8")
-            response = response.split("\\", 1)[0]
-        command, payload = response.split("\r\n", 1)
-        if payload:
-            payload = json.loads(payload)
-        else:
-            payload = {}
-        return command, payload
-    except ValueError:
-        print(f"Error parsing response: {response}")
-        raise ValueError("Invalid response format")
-    
-def create_response(status, payload, separator = "\\"):
+def create_response(response_id, status, payload = {}, separator = "\n"):
     """
     Create a response string to be sent back to the client.
     
     Args:
         status (Status): The status of the response.
         payload (dict): The data associated with the response.
+        response_id (str): The ID extracted from the request
         separator (string): Separate symbol to split 2 different response 
     Returns:
         str: The formatted response string.
     """
-    return f"{status.value}\r\n{json.dumps(payload) + separator}".encode("utf-8")
+       
+    response_body = {}
+    response_body['id'] = response_id
+    response_body['payload'] = payload
+    return f"{status.value}-{json.dumps(response_body)}{separator}".encode('utf-8')
 
-def parse_response(response, isSeparated = False):
-    """
-    Parse the response string from the tracker or peer.
-    
-    Args:
-        response (str): The response string to be parsed.
-        isSeparated (bool): False: not using separater => response hasn't been decode
-                            True: using separater => response has been decoded
-    Returns:
-        str: The status of the response.
-        dict: The parsed response data.
-    """
+def parse(message, isSeparated=False):
     try:
         if not isSeparated:
-            response = response.decode("utf-8")
-            response = response.split("\\", 1)[0]
+            # Decode and remove separator charactor
+            message = message.decode("utf-8")
+            message = message.split("\n", 1)[0]
 
-        status, payload = response.split("\r\n", 1)
-        if payload:
-            payload = json.loads(payload)
-        else:
-            payload = {}
-        return status, payload
-    except ValueError:
-        print(f"Error parsing response: {response}")
-        raise ValueError("Invalid response format")
+        header, body = message.split("-", 1)
+        body = json.loads(body)
+        payload = body['payload']
+        id = body['id']
+        return header, payload, id
+    
+    except Exception as e:
+        print(f"Error parsing request: {message}")
+        raise ValueError("Invalid request format") from e

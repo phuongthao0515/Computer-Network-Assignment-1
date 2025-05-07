@@ -16,7 +16,7 @@ def client_interface(client: PeerClient):
     print("  /list - list all available channels")
     print("  /join <channel_name> - Join a specific channel")
     print("  /connected - list all connected channels")
-    print("  /sendto <channel_name> <message> - Send a message to a specific channel")
+    print("  /send <channel_name> <message> - Send a message to a specific channel")
     print("  /disconnect <channel_name> - Disconnect from a specific channel")
     print("  /exit - Exit the application")
     print("  /debug <channel_name> - Send debug information to a specific channel")
@@ -82,10 +82,10 @@ def client_interface(client: PeerClient):
                 else:
                     print(f"Channel {channel_name} not found.")
                     
-            elif user_input.lower().startswith("/sendto "):
+            elif user_input.lower().startswith("/send "):
                 parts = user_input.split(" ", 2)
                 if len(parts) < 3:
-                    print("Usage: /sendto <channel_name> <message>")
+                    print("Usage: /send <channel_name> <message>")
                 else:
                     channel_name = parts[1].strip()
                     message = parts[2].strip()
@@ -100,17 +100,25 @@ def client_interface(client: PeerClient):
                 channel_name = user_input.split(" ", 1)[1].strip()
                 
                 if channel_name in client.channels:
+                    print(0)
                     client.disconnect(channel_name)
+                    print(1)
                 else:
                     print(f"Not connected to channel: {channel_name}")     
                     
-            elif user_input.lower().startswith("/debug"):
+            elif user_input.lower().startswith("/debug "):
                 channel_name = user_input.split(" ", 1)[1].strip()
                 if channel_name in client.channels:
                     client.debug(channel_name)
                     print("Debug information sent to the channel.")
                 else:
                     print(f"Not connected to channel: {channel_name}")
+                    
+            elif user_input.lower().startswith("/client"):
+                print("Debug information for client:")
+                print(f"Username: {client.username}")
+                print(f"Connected Channels: {client.channels}")
+                print(f"Messages: {client.messages}")
                     
             elif user_input.lower().startswith("/refresh"):
                 channel_name = user_input.split(" ", 1)[1].strip()
@@ -134,6 +142,21 @@ def client_interface(client: PeerClient):
                         print(f"View type for channel '{channel_name}' set to {view_type}.")
                     else:
                         print(f"Not connected to channel: {channel_name}")
+                        
+            # # /author <channel_name> <username> <type
+            # elif user_input.lower().startswith("/author"):
+            #     parts = user_input.split(" ", 2)
+            #     if len(parts) < 3:
+            #         print("Usage: /author <channel_name> <username>")
+            #     else:
+            #         channel_name = parts[1].strip()
+            #         username = parts[2].strip()
+                    
+            #         if channel_name in client.channels:
+            #             client.authorize_user(channel_name, username)
+            #             print(f"User '{username}' authorized for channel '{channel_name}'.")
+            #         else:
+            #             print(f"Not connected to channel: {channel_name}")
             
             else:
                 print("Invalid command")

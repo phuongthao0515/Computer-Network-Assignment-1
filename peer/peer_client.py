@@ -1,8 +1,11 @@
 import socket
 import json
 from threading import Thread, Lock
-from utils.protocol import Command, Status, create_request, parse_response
+from utils.protocol import Command, Status, create_request, parse
+from utils.utils import print_message
 import time
+from uuid import uuid4
+import queue
 
 class PeerClient:
     def __init__(self, username, tracker_ip, tracker_port):
@@ -23,38 +26,38 @@ class PeerClient:
         self.cached_messages_file = f"{username}_cached_messages.json"
         self._load_cached_messages()
         print(f"Cached messages loaded: {self.cached_messages}")
+        
+        # Request tracking mechanism
+        self.pending_responses = {}
+        self.response_queues_lock = Lock()
 
-    # DONE
+    # OK
     def get_peer_hosts(self):
-        """
-        Send a request to the tracker to get the list of available peer hosts.
-        Returns a list of dictionaries containing host information.
-        """
         try:
             with socket.socket() as tracker_socket:
                 tracker_socket.connect((self.tracker_ip, self.tracker_port))
                 
+                # One time socket connection to tracker
                 request = create_request(Command.LIST, {})
                 tracker_socket.send(request)
                 
                 response = tracker_socket.recv(4096)
-                status, payload = parse_response(response)
+                status, payload, _ = parse(response)
                 
                 if status == Status.OK.value:
                     return payload
                 else:
                     print(f"Error from tracker: {status}")
                     return []
+                
         except Exception as e:
             print(f"Error getting peer hosts from tracker: {e}")
             return []
+        finally:
+            tracker_socket.close()
 
-    # DONE
+    # OK
     def connect_to_host(self, target_host):
-        """
-        Connect to a specific peer host to fetch and send messages.
-        Returns True if connection is successful, False otherwise.
-        """
         host_ip = target_host['peer_server_ip']
         host_port = target_host['peer_server_port']
         channel_name = target_host['channel_name']
@@ -67,29 +70,31 @@ class PeerClient:
             new_socket.send(create_request(Command.CONNECT, {
                 "username": self.username
             }))
+            
             response = new_socket.recv(1024)
-            print(response)
-            command, payload = parse_response(response)
-            if command == Status.UNAUTHORIZED.value:
-                print(f"Error connecting to host: {command}")
+            status, payload, _ = parse(response)
+            
+            if status == Status.OK.value:
+                print(f"Connected to host: {status}")
+                initial_messages = payload
+            elif status == Status.UNAUTHORIZED.value:
+                print(f"Error connecting to host: {status}")
+                new_socket.close()
                 return False
             else:
-                print(f"Connected to host: {command}")
-            
-            # Store channel information
+                print(f"Unexpected response from host: {status}")
+                new_socket.close()
+                return False
+                        
+            # Store connected channel information
             self.channels[channel_name] = {
                 'ip': host_ip,
                 'port': host_port,
                 'socket': new_socket
             }
-            self.messages[channel_name] = []
             
-            # receive initial messages
-            response = new_socket.recv(4096)
-            command, initial_messages = parse_response(response)
-            if command != Command.MESSAGE.value:
-                print(f"Unexpected command received: {command}")
-                return False
+            # Load initial messages
+            self.messages[channel_name] = []
             for msg in initial_messages:
                 if isinstance(msg, dict) and 'username' in msg and 'message_content' in msg and 'time' in msg:
                     with self.messages_lock:
@@ -97,11 +102,11 @@ class PeerClient:
                 else:
                     print(f"Warning: Invalid message format received: {msg}")
             
-            # Start a thread to listen for new messages from this channel
+            # Start a thread to listen for new messages from this new channel
             Thread(target=self.listen_for_messages, args=(channel_name,), daemon=True).start()
-            print(f"Connected to channel '{channel_name}' at {host_ip}:{host_port}")
-                                    
+            print(f"Connected to channel '{channel_name}' at {host_ip}:{host_port}")        
             return True
+        
         except Exception as e:
             print(f"Error connecting to channel '{channel_name}' at {host_ip}:{host_port}: {e}")
             if channel_name in self.channels:
@@ -109,68 +114,68 @@ class PeerClient:
             if channel_name in self.messages:
                 del self.messages[channel_name]
             return False
+        
+        # Already cleaned up in listen_for_messages
 
+    # OK
     def listen_for_messages(self, channel_name):
-        """Listen for incoming messages from a specific channel."""
         if channel_name not in self.channels:
             print(f"Error: Channel '{channel_name}' not found")
             return
         
-        channel_info = self.channels[channel_name]
-        socket_obj = channel_info['socket']
-        host_ip = channel_info['ip']
-        host_port = channel_info['port']
+        socket_obj = self.channels[channel_name]['socket']
+        host_ip = self.channels[channel_name]['ip']
+        host_port = self.channels[channel_name]['port']
         
         if socket_obj:
             socket_obj.settimeout(1.0)
         
         buffer = ""
+        
+        # To stop the thread when the channel is closed or disconnected
         while channel_name in self.channels and socket_obj:
             try:
+                # Get data (may include multiple messages)
                 data = socket_obj.recv(1024)
                 if not data:
                     break
-                
+
                 buffer += data.decode("utf-8")
-                while '\\' in buffer:
-                    # Split the buffer into individual requests
-                    request, buffer = buffer.split('\\', 1)
-                    
+                while '\n' in buffer:
+                    request, buffer = buffer.split('\n', 1)
                     if not request:
                         continue
-                    
-                    # Parse the request
+                                        
                     try:
-                        command, payload = parse_response(request, isSeparated=True)
-                        if command == Command.MESSAGE.value:
-                            messages = payload
-                            for msg in messages:
-                                with self.messages_lock:
-                                    self.messages[channel_name].append(msg)
-                                
-                                RESET = "\033[0m"
-                                TIME_COLOR = "\033[92m"  # Green for time
-                                USER_COLOR = "\033[94m"  # Blue for username
-                                SELF_COLOR = "\033[97m"  # White for self messages
-                                if msg['username'] == self.username:
-                                    print(f"{TIME_COLOR}{msg['time']}{RESET} {SELF_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
-                                else:
-                                    print(f"{TIME_COLOR}{msg['time']}{RESET} {USER_COLOR}[{msg['username']}]{RESET}: {msg['message_content']}")
-                            
-                        elif command == Status.UNAUTHORIZED.value:
-                            print(f"Unauthorized access to channel '{channel_name}'")
-                            continue  # Ignore non-message commands
-                    except ValueError:
-                        # Fallback: Try to parse as raw JSON if protocol format fails
-                        try:
-                            message = json.loads(request)
-                            if not isinstance(message, dict) or 'username' not in message or 'message_content' not in message:
-                                print(f"Warning: Invalid message format received: {request}")
-                                continue
-                        except json.JSONDecodeError:
-                            print(f"Error parsing message data: {request}")
+                        header, payload, id = parse(request, isSeparated=True)
+                        print(f"[LOG] {header}-{payload}-{id}")
+                        
+                        # Response handling
+                        if header in [
+                            Status.OK.value,
+                            Status.UNAUTHORIZED.value,
+                            Status.REQUEST_ERROR.value,
+                            Status.SERVER_ERROR.value,
+                        ]:
+                            with self.response_queues_lock:
+                                if id in self.pending_responses:
+                                    self.pending_responses[id].put(request)
                             continue
-                
+                        
+                        # Request handling
+                        elif header == Command.MESSAGE.value:
+                            for msg in payload:
+                                if isinstance(msg, dict) and 'username' in msg and 'message_content' in msg and 'time' in msg:
+                                    with self.messages_lock:
+                                        self.messages[channel_name].append(msg)
+                                
+                                '''Print out for debugging'''
+                                print_message(msg, self.username)
+                                
+                    except ValueError:
+                        print(f"Error parsing message: {request}")
+                        continue
+
             except socket.timeout:
                 continue  # Timeout occurred, check if channel still exists
             except socket.error as e:
@@ -188,59 +193,38 @@ class PeerClient:
             del self.channels[channel_name]
         print(f"Disconnected from channel '{channel_name}' at {host_ip}:{host_port}")
 
-    def send_message(self, content, channel_name=None):
-        """
-        Send a message to a specific channel or all connected channels if channel_name is None.
-        Returns True if message is sent successfully to at least one channel or cached when offline, False otherwise.
-        """
-        if not self.channels or (channel_name and channel_name not in self.channels):
-            print("Not connected to the specified channel or any channel. Caching message.")
-            # Cache message for specified channel or all known channels
-            if channel_name:
-                self._cache_message(content, channel_name)
-            else:
-                if self.channels:
-                    for ch_name in self.channels.keys():
-                        self._cache_message(content, ch_name)
-                else:
-                    # No specific channel, cache as general message
-                    self._cache_message(content, None)
+    # OK
+    def send_message(self, content, channel_name):
+        # Caching if not connected to the channel
+        if not self.channels or (channel_name not in self.channels):
+            print(f"Not connected to channel {channel_name}. Caching message.")
+            self._cache_message(content, channel_name)
             return True
         
-        # Prepare message request
+        # Send message and wait for response
         payload = {
             "username": self.username,
             "message_content": content,
         }
-        request = create_request(Command.MESSAGE, payload)
-        success = False
+        status, payload = self.send_request_and_wait_response(
+            self.channels[channel_name]['socket'],
+            Command.MESSAGE,
+            payload,
+        )
         
-        target_channels = [channel_name] if channel_name else list(self.channels.keys())
-        for ch_name in target_channels:
-            if ch_name in self.channels:
-                try:
-                    self.channels[ch_name]['socket'].send(request)
-                    with self.messages_lock:
-                        self.messages[ch_name].append(payload)
-                    success = True
-                    print(f"Message sent to channel '{ch_name}'")
-                except Exception as e:
-                    print(f"Error sending message to channel '{ch_name}': {e}")
-                    if ch_name in self.channels:
-                        self.channels[ch_name]['socket'].close()
-                        del self.channels[ch_name]
-                    # Cache the message for this specific channel
-                    self._cache_message(content, ch_name)
-        
-        if not success and not channel_name:
-            print("Failed to send message to any channel. Caching message for all known channels.")
-            if self.channels:
-                for ch_name in self.channels.keys():
-                    self._cache_message(content, ch_name)
-            else:
-                # No specific channel, cache as general message
-                self._cache_message(content, None)
-        return True
+        # Response handling
+        if status == Status.OK.value:
+            print(f"Message sent to channel '{channel_name}'")
+            return True
+        elif status == Status.UNAUTHORIZED.value:
+            print(f"Unauthorized to send message to channel '{channel_name}'")
+            return False
+        elif status == Status.REQUEST_ERROR.value:
+            print(f"Request error while sending message to channel '{channel_name}': {payload}")
+            return False
+        else:
+            print(f"Unexpected response while sending message to channel '{channel_name}': {status}")
+            return False
     
     def change_view(self, channel_name, view):
         """Change the view of messages for a specific channel."""
@@ -248,15 +232,27 @@ class PeerClient:
             print(f"Not connected to channel '{channel_name}'")
             return
         
-        request = create_request(Command.VIEW, {
-            "username": self.username,
-            "permission": view,
-        })
-        try:
-            self.channels[channel_name]['socket'].send(request)
-            print(f"View changed to {view} for channel '{channel_name}'")
-        except Exception as e:
-            print(f"Error changing view for channel '{channel_name}': {e}")
+        status, payload = self.send_request_and_wait_response(
+            self.channels[channel_name]['socket'],
+            Command.VIEW,
+            {
+                "username": self.username,
+                "permission": view,
+            },
+        )
+        
+        if status == Status.OK.value:
+            print(f"View changed to {bool(view)} for channel '{channel_name}'")
+            return True
+        elif status == Status.UNAUTHORIZED.value:
+            print(f"Unauthorized to change view for channel '{channel_name}'")
+            return False
+        elif status == Status.REQUEST_ERROR.value:
+            print(f"Request error while changing view for channel '{channel_name}': {payload}")
+            return False
+        else:
+            print(f"Unexpected response while changing view for channel '{channel_name}': {status}")
+            return False
     
     def debug(self, channel_name):
         """Send a debug command to a specific channel."""
@@ -271,22 +267,53 @@ class PeerClient:
         except Exception as e:
             print(f"Error sending debug command to channel '{channel_name}': {e}")
         
-
-    def disconnect(self, channel_name=None):
-        """Disconnect from a specific channel or all channels if channel_name is None."""
-        target_channels = [channel_name] if channel_name else list(self.channels.keys())
-        for ch_name in target_channels:
-            if ch_name in self.channels:
-                try:
-                    self.channels[ch_name]['socket'].close()
-                except Exception as e:
-                    print(f"Error closing socket for channel '{ch_name}': {e}")
-                print(f"Disconnected from channel '{ch_name}'")
-                del self.channels[ch_name]
+    # NOT DONE, have to handle in listen_for_messages,...
+    def disconnect(self, channel_name):
+        if channel_name not in self.channels:
+            print(f"Not connected to channel '{channel_name}'")
+            return
+        
+        # Send disconnect request to the server (2 hướng: close socket or send disconnect request)
+        try:
+            self.channels[channel_name]['socket'].close()
+        except Exception as e:
+            print(f"Error closing socket for channel '{channel_name}': {e}")
+            
+        print(f"Disconnected from channel '{channel_name}'")
+        del self.channels[channel_name] 
         
         # Small delay to ensure threads terminate
         time.sleep(0.1)
 
+    # def authorize_user(self, channel_name, actor, target):
+    #     """Authorize a user to send messages in a specific channel."""
+    #     if channel_name not in self.channels:
+    #         print(f"Not connected to channel '{channel_name}'")
+    #         return
+        
+    #     status, payload = self.send_request_and_wait_response(
+    #         self.channels[channel_name]['socket'],
+    #         Command.AUTHORIZE,
+    #         {
+    #             "actor": actor,
+    #             "target": target,
+    #         },
+    #     )
+        
+    #     if status == Status.OK.value:
+    #         print(f"User '{username}' authorized for channel '{channel_name}'")
+    #         return True
+    #     elif status == Status.UNAUTHORIZED.value:
+    #         print(f"Unauthorized to authorize user '{username}' for channel '{channel_name}'")
+    #         return False
+    #     elif status == Status.REQUEST_ERROR.value:
+    #         print(f"Request error while authorizing user '{username}' for channel '{channel_name}': {payload}")
+    #         return False
+    #     else:
+    #         print(f"Unexpected response while authorizing user '{username}' for channel '{channel_name}': {status}")
+    #         return False
+
+    # OK
     def _load_cached_messages(self):
         """Load cached messages from file."""
         try:
@@ -302,7 +329,8 @@ class PeerClient:
         except Exception as e:
             print(f"Error loading cached messages: {e}")
             self.cached_messages = {}
-            
+
+    # OK
     def _cache_message(self, message_content, channel_name):
         """
         Cache a message to be sent later when connection is available.
@@ -324,7 +352,7 @@ class PeerClient:
         except Exception as e:
             print(f"Error caching message: {e}")
     
-    # DONE
+    # OK
     def _send_cached_messages(self, channel_name):
         """
         Send cached messages intended for the specified channel.
@@ -347,15 +375,65 @@ class PeerClient:
                 "message_content": msg,
             } for msg in messages_to_send]
                 
-            request = create_request(Command.CACHE, payload)
-            self.channels[channel_name]['socket'].send(request)
-            # No response needed for cache command
+            status, payload = self.send_request_and_wait_response(
+                self.channels[channel_name]['socket'],
+                Command.MESSAGE,
+                payload,
+            )
             
-            # Save updated cache to file
-            try:
-                del self.cached_messages[channel_name]  # Remove sent messages from cache
-                # Save the updated cached messages to file
-                with open(self.cached_messages_file, 'w') as f:
-                    json.dump(self.cached_messages, f, indent=2)
-            except Exception as e:
-                print(f"Error updating cached messages file: {e}")
+            # Response handling
+            if status == Status.OK.value:
+                print(f"Message sent to channel '{channel_name}'")
+                # Save updated cache to file
+                try:
+                    if channel_name in self.cached_messages:
+                        del self.cached_messages[channel_name]
+                    with open(self.cached_messages_file, 'w') as f:
+                        json.dump(self.cached_messages, f, indent=2)
+                except Exception as e:
+                    print(f"Error updating cached messages file: {e}")
+                return True
+            
+            elif status == Status.UNAUTHORIZED.value:
+                print(f"Unauthorized to send message to channel '{channel_name}'")
+                return False
+            elif status == Status.REQUEST_ERROR.value:
+                print(f"Request error while sending message to channel '{channel_name}': {payload}")
+                return False
+            else:
+                print(f"Unexpected response while sending message to channel '{channel_name}': {status}")
+                return False
+
+    # OK
+    def send_request_and_wait_response(self, conn, command, payload, timeout=5.0):
+        request_id = str(uuid4())
+        request = create_request(command, payload, request_id)
+        
+        # Response queue
+        response_queue = queue.Queue()
+        
+        # Register the request
+        with self.response_queues_lock:
+            self.pending_responses[request_id] = response_queue
+            
+        try: 
+            conn.send(request)
+            
+            try: 
+                # Wait for response
+                response = response_queue.get(timeout=timeout)                
+                status, payload, _ = parse(response, isSeparated=True)
+                return status, payload
+            except queue.Empty:
+                print(f"Request timed out after {timeout} seconds")
+                return None, None
+        
+        except Exception as e:
+            print(f"Error sending request: {e}")
+            return None, None
+        
+        finally:
+            # Unregister the request
+            with self.response_queues_lock:
+                if request_id in self.pending_responses:
+                    del self.pending_responses[request_id]
