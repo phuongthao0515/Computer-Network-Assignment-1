@@ -190,7 +190,7 @@ class PeerClient:
         if channel_name in self.channels:
             if self.channels[channel_name]['socket']:
                 self.channels[channel_name]['socket'].close()
-            del self.channels[channel_name]
+            self.channels.pop(channel_name, "")
         print(f"Disconnected from channel '{channel_name}' at {host_ip}:{host_port}")
 
     # OK
@@ -280,7 +280,9 @@ class PeerClient:
             print(f"Error closing socket for channel '{channel_name}': {e}")
             
         print(f"Disconnected from channel '{channel_name}'")
-        del self.channels[channel_name] 
+        
+        # Change del to pop
+        self.channels.pop(channel_name, "") 
         
         # Small delay to ensure threads terminate
         time.sleep(0.1)

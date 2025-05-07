@@ -13,6 +13,8 @@ class Command(Enum):
     VIEW = "VIEW"
     DEBUG = "DEBUG"
     AUTHORIZE = "AUTHORIZE"
+    BROADCAST = "BROADCAST"
+    CACHE = "CACHE"
     
 class Status(Enum):
     OK = "OK"
@@ -41,6 +43,10 @@ def create_request(command, payload = {}, request_id = None, separator="\n"):
     request_body['id'] = request_id
     
     # 2. Convert to list
+    # MAYBE NEED FIX
+    # [Command.HOST, Command.MESSAGE,
+    #                  Command.CACHE, Command.BROADCAST,
+    #                  Command.SIGNIN, Command.SIGNUP, Command.GUEST]:
     if command in [Command.MESSAGE]:
         # If the payload is a dictionary, convert it to a list of dictionaries
         if isinstance(payload, dict):
@@ -68,12 +74,12 @@ def create_response(response_id, status, payload = {}, separator = "\n"):
     response_body['payload'] = payload
     return f"{status.value}-{json.dumps(response_body)}{separator}".encode('utf-8')
 
-def parse(message, isSeparated=False):
+def parse(message, isSeparated=False, separator="\n"):
     try:
         if not isSeparated:
             # Decode and remove separator charactor
             message = message.decode("utf-8")
-            message = message.split("\n", 1)[0]
+            message = message.split(separator, 1)[0]
 
         header, body = message.split("-", 1)
         body = json.loads(body)

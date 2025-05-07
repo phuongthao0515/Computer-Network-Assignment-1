@@ -624,7 +624,7 @@ def client_interface(client: PeerClient):
             user_input = input()
             
             if user_input.lower() == "/exit":
-                client.disconnect()
+                exitFunc()
                 break
             
             elif user_input.lower() == "/list":
@@ -756,7 +756,7 @@ def client_interface(client: PeerClient):
             else:
                 print("Invalid command")
         except KeyboardInterrupt:
-            client.disconnect()
+            exitFunc()
             break
         except Exception as e:
             print(f"Error in client interface: {e}")
@@ -793,13 +793,14 @@ python peer.py --tracker-ip 127.0.0.1 --tracker-port 22236 --peer-host-ip 127.0.
         Thread(target=peer_server, args=(peer_host,), daemon=True).start()
         print(f"Hosting channel '{channel_name}' on {peer_host_ip}:{peer_host_port}")
     
-    # # Start client interface in Terminal
-    # client_interface(client)
+    # Start client interface in Terminal
+    client_interface(client)
 
-    # Start the GUI
-    app = App(client)
+    # chưa hiện thực login, register và view trong GUI
+    # # Start the GUI
+    # app = App(client)
     
-    # When window is closed, disconnect from all peers
-    app.protocol("WM_DELETE_WINDOW", lambda: [exitFunc(), app.destroy()])
+    # # When window is closed, disconnect from all peers
+    # app.protocol("WM_DELETE_WINDOW", lambda: [exitFunc(), app.destroy()])
     
-    app.mainloop()
+    # app.mainloop()
