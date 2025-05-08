@@ -695,9 +695,7 @@ def client_interface(client: PeerClient):
                 channel_name = user_input.split(" ", 1)[1].strip()
                 
                 if channel_name in client.channels:
-                    print(0)
                     client.disconnect(channel_name)
-                    print(1)
                 else:
                     print(f"Not connected to channel: {channel_name}")     
                     
