@@ -70,7 +70,8 @@ class PeerClient:
             new_socket.connect((host_ip, host_port))
             
             new_socket.send(create_request(Command.CONNECT, {
-                "username": self.username
+                "username": self.username,
+                "user_type": self.user_type.value,
             }))
             
             response = new_socket.recv(1024)
@@ -289,33 +290,31 @@ class PeerClient:
         # Small delay to ensure threads terminate
         time.sleep(0.1)
 
-    # def authorize_user(self, channel_name, actor, target):
-    #     """Authorize a user to send messages in a specific channel."""
-    #     if channel_name not in self.channels:
-    #         print(f"Not connected to channel '{channel_name}'")
-    #         return
+    def authorize_user(self, channel_name, target, author_type):
+        """Authorize a user to send messages in a specific channel."""
+        if channel_name not in self.channels:
+            print(f"Not connected to channel '{channel_name}'")
+            return
         
-    #     status, payload = self.send_request_and_wait_response(
-    #         self.channels[channel_name]['socket'],
-    #         Command.AUTHORIZE,
-    #         {
-    #             "actor": actor,
-    #             "target": target,
-    #         },
-    #     )
+        status, payload = self.send_request_and_wait_response(
+            self.channels[channel_name]['socket'],
+            Command.AUTHORIZE,
+            {
+                "actor": self.username,
+                "target": target,
+                "author_type": author_type,
+            },
+        )
         
-    #     if status == Status.OK.value:
-    #         print(f"User '{username}' authorized for channel '{channel_name}'")
-    #         return True
-    #     elif status == Status.UNAUTHORIZED.value:
-    #         print(f"Unauthorized to authorize user '{username}' for channel '{channel_name}'")
-    #         return False
-    #     elif status == Status.REQUEST_ERROR.value:
-    #         print(f"Request error while authorizing user '{username}' for channel '{channel_name}': {payload}")
-    #         return False
-    #     else:
-    #         print(f"Unexpected response while authorizing user '{username}' for channel '{channel_name}': {status}")
-    #         return False
+        if status == Status.OK.value:
+            print(f"User '{target}' authorized in channel '{channel_name}'")
+            return True
+        elif status == Status.UNAUTHORIZED.value:
+            print(payload['message'])
+            return False
+        elif status == Status.REQUEST_ERROR.value:
+            print(payload['message'])
+            return False
 
     # OK
     def _load_cached_messages(self):

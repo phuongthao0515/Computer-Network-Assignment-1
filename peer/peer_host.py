@@ -5,6 +5,7 @@ import time
 from uuid import uuid4
 from datetime import datetime
 from utils.protocol import create_request, parse, Command, Status, create_response
+from utils.utils import UserType
 
 class PeerHost:
     def __init__(self, channel_name, owner_peer, ip, port, tracker_ip, tracker_port, max_connections=10):
@@ -29,14 +30,10 @@ class PeerHost:
             "role": "owner",
             "status": "online",
         }
-        # self.authen_peers['ben'] = {
-        #     "role": "user",
-        #     "status": "online",
-        # }
         self.authen_peers_lock = Lock()
         
         # Viewers permission
-        self.view_permission = False
+        self.view_permission = True
         
         # Messages information
         self.messages = [
@@ -73,12 +70,13 @@ class PeerHost:
             
             while self.running:
                 conn, addr = self.socket_server.accept()
-                with self.peer_lock:
-                    if len(self.connected_peers) < self.max_connections:
-                        self.connected_peers.append((conn, addr))
-                        Thread(target=self.handle_peer_connection, args=(conn, addr), daemon=True).start()
-                    else:
-                        conn.close()
+                Thread(target=self.handle_peer_connection, args=(conn, addr), daemon=True).start()
+                # with self.peer_lock:
+                #     if len(self.connected_peers) < self.max_connections:
+                #         self.connected_peers.append((conn, addr))
+                #         Thread(target=self.handle_peer_connection, args=(conn, addr), daemon=True).start()
+                #     else:
+                #         conn.close()
         except Exception as e:
             print(f"Error: {e}")
             self.running = False
@@ -116,6 +114,13 @@ class PeerHost:
     
     # 
     def handle_peer_connection(self, conn, addr):
+        # Handling limit of connections
+        with self.peer_lock:
+            if len(self.connected_peers) >= self.max_connections:
+                print(f"Max connections reached. Closing connection from {addr}.")
+                conn.close()
+                return
+        
         # Handling CONNECT command
         connect_request = conn.recv(1024)
         command, payload, request_id = parse(connect_request)
@@ -136,6 +141,10 @@ class PeerHost:
         with self.messages_lock:
             conn.send(create_response(request_id, Status.OK, self.messages))
         print(f"Peer {payload['username']} authenticated successfully.")
+        
+        with self.peer_lock:
+            self.connected_peers.append((conn, addr, payload))
+            print(f"Connected peers: {[(a, u) for _, a, u in self.connected_peers]}")
         
         # Listening loop
         buffer = ""
@@ -173,7 +182,7 @@ class PeerHost:
                     elif command == Command.DEBUG.value:
                         with self.messages_lock and self.authen_peers_lock and self.peer_lock:
                             print("DEBUG INFO")
-                            print(f"Connected Peers: {[a for _, a in self.connected_peers]}")
+                            print(f"Connected Peers: {[(a, u) for _, a, u in self.connected_peers]}")
                             print(f"Authenticated Peers: {self.authen_peers}")
                             print(f"Messages: {self.messages}")
                             print(f"View Permission: {self.view_permission}")
@@ -187,8 +196,79 @@ class PeerHost:
                             response = create_response(request_id, Status.UNAUTHORIZED, {})
                             conn.send(response)
                             
-                    # elif command == Command.AUTHORIZE.value:
+                    elif command == Command.AUTHORIZE.value:
+                        author_type = payload['author_type']
+                        actor = payload['actor']
+                        if actor != self.owner_peer:
+                            response = create_response(request_id, Status.UNAUTHORIZED, {
+                                "message": "Only the owner can authorize users."
+                            })
+                            conn.send(response)
+                            continue
                         
+                        target = payload['target']
+                        target_type = None
+                        with self.peer_lock:
+                            for _, _, user in self.connected_peers:
+                                if user['username'] == target:
+                                    target_type = user['user_type']
+                                    break
+
+                        if target_type is None:
+                            response = create_response(request_id, Status.REQUEST_ERROR, {
+                                "message": f"User {target} is not connected."
+                            })
+                            conn.send(response)
+                            continue
+                                
+                        if target_type == UserType.GUEST.value:
+                            response = create_response(request_id, Status.REQUEST_ERROR, {
+                                "message": "Cannot authorize a guest."
+                            })
+                            conn.send(response)
+                            continue
+                        
+                        if author_type == 0:
+                            with self.authen_peers_lock:
+                                if target in self.authen_peers:
+                                    del self.authen_peers[target]
+                                    response = create_response(request_id, Status.OK, {
+                                        "message": f"User {target} has been deauthorized."
+                                    })
+                                    conn.send(response)
+                                else:
+                                    response = create_response(request_id, Status.REQUEST_ERROR, {
+                                        "message": f"User {target} is not authorized."
+                                    })
+                                    conn.send(response)
+                            continue
+                        
+                        elif author_type == 1:
+                            with self.authen_peers_lock:
+                                if target not in self.authen_peers:
+                                    self.authen_peers[target] = {
+                                        "role": "user",
+                                        "status": "online",
+                                    }
+                                    response = create_response(request_id, Status.OK, {
+                                        "message": f"User {target} has been authorized."
+                                    })
+                                    conn.send(response)
+                                else:
+                                    response = create_response(request_id, Status.REQUEST_ERROR, {
+                                        "message": f"User {target} is already authorized."
+                                    })
+                                    conn.send(response)
+                            continue
+                            
+                        else:
+                            response = create_response(request_id, Status.REQUEST_ERROR, {
+                                "message": "Invalid author type."
+                            })
+                            conn.send(response)
+                    
+                    else:
+                        print(f"Unknown command from {addr}: {command}")                         
                         
                 except Exception as e:
                     print(f"Error handling peer {addr}: {e}")
@@ -196,7 +276,7 @@ class PeerHost:
         
         # Remove peer on disconnection
         with self.peer_lock:
-            self.connected_peers = [(c, a) for c, a in self.connected_peers if a != addr]
+            self.connected_peers = [(c, a, u) for c, a, u in self.connected_peers if a != addr]
         conn.close()
 
     def broadcast_messages(self):
@@ -232,16 +312,16 @@ class PeerHost:
                     except (BrokenPipeError, ConnectionResetError):
                         print(f"Peer {addr} disconnected. Removing from list.")
                         with self.peer_lock:
-                            self.connected_peers = [(c, a) for c, a in self.connected_peers if a != addr]
+                            self.connected_peers = [(c, a, u) for c, a, u in self.connected_peers if a != addr]
                             conn.close()
                     except socket.error as e:
                         print(f"Socket error with {addr}: {e}")
                         with self.peer_lock:
-                            self.connected_peers = [(c, a) for c, a in self.connected_peers if a != addr]
+                            self.connected_peers = [(c, a, u) for c, a, u in self.connected_peers if a != addr]
                     except Exception as e:
                         print(f"Error broadcasting to {addr}: {e}")
                         with self.peer_lock:
-                            self.connected_peers = [(c, a) for c, a in self.connected_peers if a != addr]
+                            self.connected_peers = [(c, a, u) for c, a, u in self.connected_peers if a != addr]
                     
             except Exception as e:
                 print(f"Error in broadcast thread: {e}")
@@ -258,7 +338,7 @@ class PeerHost:
         self.running = False
         self.socket_server.close()
         with self.peer_lock:
-            for conn, _ in self.connected_peers:
+            for conn, _, _ in self.connected_peers:
                 conn.close()
             self.connected_peers = []
             
