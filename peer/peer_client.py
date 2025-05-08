@@ -289,6 +289,32 @@ class PeerClient:
         
         # Small delay to ensure threads terminate
         time.sleep(0.1)
+        
+    def retrieve_info(self, channel_name):
+        """Retrieve information about the channel."""
+        if channel_name not in self.channels:
+            print(f"Not connected to channel '{channel_name}'")
+            return
+        
+        status, payload = self.send_request_and_wait_response(
+            self.channels[channel_name]['socket'],
+            Command.RET_INFO,
+            {
+                "username": self.username,
+            })
+        
+        if status == Status.OK.value:
+            return payload
+        elif status == Status.UNAUTHORIZED.value:
+            print(payload['message'])
+            return False
+        elif status == Status.REQUEST_ERROR.value:
+            print(payload['message'])
+            return False
+        else:
+            print(f"Unexpected response while retrieving info for channel '{channel_name}': {status}")
+            return False
+            
 
     def authorize_user(self, channel_name, target, author_type):
         """Authorize a user to send messages in a specific channel."""

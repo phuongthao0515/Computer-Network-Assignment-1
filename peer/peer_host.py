@@ -203,6 +203,23 @@ class PeerHost:
                                 response = create_response(request_id, Status.UNAUTHORIZED, {})
                                 conn.send(response)
                                 
+                        elif command == Command.RET_INFO.value:
+                            with self.authen_peers_lock:
+                                if payload['username'] not in self.authen_peers:
+                                    response = create_response(request_id, Status.UNAUTHORIZED, {
+                                        "message": "You are not authorized to view this information."
+                                    })
+                                    conn.send(response)
+                                    continue
+                            
+                            with self.authen_peers_lock and self.messages_lock:
+                                response = create_response(request_id, Status.OK, {
+                                    "messages": self.messages,
+                                    "authen_peers": self.authen_peers,
+                                    "view_permission": self.view_permission,
+                                })
+                                conn.send(response)
+                                
                         elif command == Command.AUTHORIZE.value:
                             author_type = payload['author_type']
                             actor = payload['actor']

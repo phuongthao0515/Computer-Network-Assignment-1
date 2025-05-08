@@ -751,8 +751,14 @@ def client_interface(client: PeerClient):
                         client.authorize_user(channel_name, target_username, author_type)
                     else:
                         print(f"Not connected to channel: {channel_name}")
-
-
+                        
+            elif user_input.lower().startswith("/retrieve"):
+                channel_name = user_input.split(" ", 1)[1].strip()
+                if channel_name in client.channels:
+                    info = client.retrieve_info(channel_name)
+                    print(f"Channel Info: {info}")
+                else:
+                    print(f"Not connected to channel: {channel_name}")
             
             ########## TRACKER INTERACTION COMMANDS ##########
             elif user_input.lower().startswith("/signup"):
