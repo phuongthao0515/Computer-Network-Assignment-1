@@ -1,3 +1,9 @@
+from enum import Enum
+
+class UserType(Enum):
+    GUEST = "GUEST"
+    REGISTERED = "REGISTERED"
+
 def print_message(msg, username):
     RESET = "\033[0m"
     TIME_COLOR = "\033[92m"

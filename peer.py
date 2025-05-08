@@ -714,6 +714,8 @@ def client_interface(client: PeerClient):
                 print(f"Username: {client.username}")
                 print(f"Connected Channels: {client.channels}")
                 print(f"Messages: {client.messages}")
+                print(f"Username: {client.username}")
+                print(f"User Type: {client.user_type}")
                     
             elif user_input.lower().startswith("/refresh"):
                 channel_name = user_input.split(" ", 1)[1].strip()
@@ -734,7 +736,6 @@ def client_interface(client: PeerClient):
                     
                     if channel_name in client.channels:
                         client.change_view(channel_name, view_type)
-                        print(f"View type for channel '{channel_name}' set to {view_type}.")
                     else:
                         print(f"Not connected to channel: {channel_name}")
                         
@@ -752,6 +753,23 @@ def client_interface(client: PeerClient):
             #             print(f"User '{username}' authorized for channel '{channel_name}'.")
             #         else:
             #             print(f"Not connected to channel: {channel_name}")
+            
+            ########## TRACKER INTERACTION COMMANDS ##########
+            elif user_input.lower().startswith("/signup"):
+                username = input("Enter username: ").strip()
+                password = input("Enter password: ").strip()
+                if username and password:
+                    client.signup(username, password)
+                else:
+                    print("Username and password cannot be empty.")
+            
+            elif user_input.lower().startswith("/signin"):
+                username = input("Enter username: ").strip()
+                password = input("Enter password: ").strip()
+                if username and password:
+                    client.signin(username, password)
+                else:
+                    print("Username and password cannot be empty.")
             
             else:
                 print("Invalid command")

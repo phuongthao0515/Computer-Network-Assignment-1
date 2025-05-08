@@ -6,6 +6,7 @@ from utils.utils import print_message
 import time
 from uuid import uuid4
 import queue
+from utils.utils import UserType
 
 class PeerClient:
     def __init__(self, username, tracker_ip, tracker_port):
@@ -15,6 +16,7 @@ class PeerClient:
         
         # Peer client information
         self.username = username
+        self.user_type = UserType.GUEST  # Default user type
         
         # Peer host information using channel_name as key
         self.channels = {}  # Store channel information {channel_name: {ip, port, socket}}
@@ -439,3 +441,54 @@ class PeerClient:
             with self.response_queues_lock:
                 if request_id in self.pending_responses:
                     del self.pending_responses[request_id]
+                    
+    '''
+    TRACKER INTERACTION METHODS
+    '''
+    def signup(self, username, password):
+        with socket.socket() as tracker_socket:
+            tracker_socket.connect((self.tracker_ip, self.tracker_port))
+            
+            # One time socket connection to tracker
+            request = create_request(Command.SIGNUP, {
+                "username": username,
+                "password": password,
+            })
+            tracker_socket.send(request)
+            
+            response = tracker_socket.recv(4096)
+            status, payload, _ = parse(response)
+            
+            if status == Status.OK.value:
+                print(f"{payload['message']}")
+                self.username = username
+                self.user_type = UserType.REGISTERED
+                return True
+
+            elif status == Status.REQUEST_ERROR.value:
+                print(f"Request error while signing up: {payload['message']}")
+                return False
+            
+    def signin(self, username, password):
+        with socket.socket() as tracker_socket:
+            tracker_socket.connect((self.tracker_ip, self.tracker_port))
+            
+            # One time socket connection to tracker
+            request = create_request(Command.SIGNIN, {
+                "username": username,
+                "password": password,
+            })
+            tracker_socket.send(request)
+            
+            response = tracker_socket.recv(4096)
+            status, payload, _ = parse(response)
+            
+            if status == Status.OK.value:
+                print(f"{payload['message']}")
+                self.username = username
+                self.user_type = UserType.REGISTERED
+                return True
+
+            elif status == Status.REQUEST_ERROR.value:
+                print(f"Request error while logging in: {payload['message']}")
+                return False
