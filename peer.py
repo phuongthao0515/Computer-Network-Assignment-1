@@ -767,6 +767,8 @@ def client_interface(client: PeerClient):
                     client.set_invisible_mode(mode)
                 else:
                     print("Usage: /invisible <on|off>")
+                    
+            
             
             ########## TRACKER INTERACTION COMMANDS ##########
             elif user_input.lower().startswith("/signup"):

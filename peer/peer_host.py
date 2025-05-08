@@ -227,18 +227,21 @@ class PeerHost:
                                 conn.send(response)
                                 
                         elif command == Command.RET_INFO.value:
-                            with self.authen_peers_lock:
-                                if payload['username'] not in self.authen_peers:
-                                    response = create_response(request_id, Status.UNAUTHORIZED, {
-                                        "message": "You are not authorized to view this information."
-                                    })
-                                    conn.send(response)
-                                    continue
+                            # Get users list (can access but cannot modify)
+                            user_peers = []
+                            with self.peer_lock:
+                                for _, _, user in self.connected_peers:
+                                    if user['user_type'] == UserType.REGISTERED.value:
+                                        user_peers.append({
+                                            "username": user['username'],
+                                            "status": "online" if user['invisible'] is False else "offline",
+                                        })
                             
-                            with self.authen_peers_lock and self.messages_lock:
+                            with self.authen_peers_lock and self.messages_lock and self.peer_lock:
                                 response = create_response(request_id, Status.OK, {
                                     "messages": self.messages,
                                     "authen_peers": self.authen_peers,
+                                    "user_peers": user_peers,
                                     "view_permission": self.view_permission,
                                 })
                                 conn.send(response)
