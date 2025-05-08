@@ -93,7 +93,8 @@ class PeerHost:
                 request = create_request(Command.HOST, {
                     "channel_name": self.channel_name,
                     "peer_server_ip": self.ip,
-                    "peer_server_port": self.port
+                    "peer_server_port": self.port,
+                    "view_permission": self.view_permission
                 })
                 tracker_socket.send(request)
                 
@@ -197,9 +198,28 @@ class PeerHost:
                                 print(f"Messages: {self.messages}")
                                 print(f"View Permission: {self.view_permission}")
                                 
-                        elif command == Command.VIEW.value:
+                        elif command == Command.VIEW.value:                                
+                            # Set view
                             if payload['username'] == self.owner_peer:
                                 self.view_permission = bool(payload['permission'])
+                                
+                                with socket.socket() as tracker_socket:
+                                    tracker_socket.connect((self.tracker_ip, self.tracker_port))
+                                    
+                                    request = create_request(Command.VIEW, {
+                                        "channel_name": self.channel_name,
+                                        "view_permission": self.view_permission
+                                    })
+                                    tracker_socket.send(request)
+                                    
+                                    response = tracker_socket.recv(1024)
+                                    status, _, _ = parse(response)
+                                    
+                                    if status == Status.OK.value:
+                                        print(f"Successfully updated view permission to {self.view_permission} on tracker")
+                                    else:
+                                        print(f"Unexpected response from tracker: {status}")
+                                
                                 response = create_response(request_id, Status.OK, {})
                                 conn.send(response)
                             else:

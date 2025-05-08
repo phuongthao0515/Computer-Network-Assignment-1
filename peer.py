@@ -631,8 +631,8 @@ def client_interface(client: PeerClient):
                 hosts = client.get_peer_hosts()
                 print("Available Channels:")
                 for host in hosts:
-                    print(f"  - {host['channel_name']} at {host['peer_server_ip']}:{host['peer_server_port']}")
-                    
+                    print(f"  - {host['channel_name']} at {host['peer_server_ip']}:{host['peer_server_port']} with view permission={host['view_permission']}")
+                       
             elif user_input.lower() == "/connected":
                 if client.channels:
                     print("Connected Channels:")

@@ -147,6 +147,33 @@ def create_account(conn, lock, payload, request_id):
 
         print(f"[Error] Failed to send: {e}")  
 
+def change_view_permission(conn, lock, payload, request_id):
+    channel_name = payload.get("channel_name")
+    view_permission = payload.get("view_permission")
+    
+    try:
+        with lock:
+            for channel in channel_list:
+                if channel['channel_name'] == channel_name:
+                    channel['view_permission'] = view_permission
+                    message = {"message": f"Change view permission of {channel_name} successful"}
+                    status = Status.OK
+                    break
+            else:
+                message = {"message": f"Channel {channel_name} not found"}
+                status = Status.REQUEST_ERROR
+        
+        response = create_response(request_id, status, message, separater) 
+        conn.sendall(response)
+    except Exception as e:
+        error_msg = create_response(request_id, Status.SERVER_ERROR, {"message": str(e)}, separater)
+        try:
+            conn.sendall(error_msg)
+        except:
+            pass 
+
+        print(f"[Error] Failed to send: {e}")
+    
 
 def handle_user_submission(addr, conn):
     # Buffer to handle multiple requests at once
@@ -181,9 +208,12 @@ def handle_user_submission(addr, conn):
                         'channel_name': payload['channel_name'],
                         'peer_server_ip': payload['peer_server_ip'],
                         'peer_server_port': payload['peer_server_port'],
+                        'view_permission': payload['view_permission'],
                     })
                     response = create_response(request_id, Status.OK, {}, separater)
                     conn.send(response)
+                elif command == "VIEW":
+                    Thread(target=change_view_permission, args=(conn, channelLock, payload, request_id), daemon=True).start()
                 elif command == "SIGNIN":
                     Thread(target=authenticate_user, args=(conn, channelLock, payload, request_id), daemon=True).start()
                 elif command == "SIGNUP":
