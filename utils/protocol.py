@@ -14,6 +14,7 @@ class Command(Enum):
     DEBUG = "DEBUG"
     AUTHORIZE = "AUTHORIZE"
     RET_INFO = "RET_INFO"
+    INVISIBLE = "INVISIBLE"
     
 class Status(Enum):
     OK = "OK"

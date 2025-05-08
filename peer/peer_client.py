@@ -17,6 +17,7 @@ class PeerClient:
         # Peer client information
         self.username = username
         self.user_type = UserType.GUEST  # Default user type
+        self.invisible_mode = False  # Default visibility status
         
         # Peer host information using channel_name as key
         self.channels = {}  # Store channel information {channel_name: {ip, port, socket}}
@@ -72,6 +73,7 @@ class PeerClient:
             new_socket.send(create_request(Command.CONNECT, {
                 "username": self.username,
                 "user_type": self.user_type.value,
+                "invisible": self.invisible_mode,
             }))
             
             response = new_socket.recv(1024)
@@ -314,14 +316,49 @@ class PeerClient:
         else:
             print(f"Unexpected response while retrieving info for channel '{channel_name}': {status}")
             return False
+    
+    def set_invisible_mode(self, mode):
+        """Set the visibility mode of the user."""
+        if mode == "on":
+            mode = True
+        elif mode == "off":
+            mode = False
+        else:
+            print("Invalid mode. Use 'on' or 'off'.")
+            return
+        
+        if self.invisible_mode == mode:
+            print(f"Visibility mode is already set to {mode}")
+            return
+        self.invisible_mode = mode
+        print(f"client", self.invisible_mode)
+        # Send request to all connected channels to update visibility
+        for channel_name in self.channels:
+            status, payload = self.send_request_and_wait_response(
+                self.channels[channel_name]['socket'],
+                Command.INVISIBLE,
+                {
+                    "username": self.username,
+                    "invisible": mode,
+                },
+            )
             
-
+            if status == Status.OK.value:
+                print(f"Visibility set to {mode} for channel '{channel_name}'")
+            elif status == Status.UNAUTHORIZED.value:
+                print(payload['message'])
+            elif status == Status.REQUEST_ERROR.value:
+                print(payload['message'])
+            else:
+                print(f"Unexpected response while setting visibility for channel '{channel_name}': {status}")
+        
     def authorize_user(self, channel_name, target, author_type):
         """Authorize a user to send messages in a specific channel."""
         if channel_name not in self.channels:
             print(f"Not connected to channel '{channel_name}'")
             return
         
+        print("author", self.invisible_mode)
         status, payload = self.send_request_and_wait_response(
             self.channels[channel_name]['socket'],
             Command.AUTHORIZE,

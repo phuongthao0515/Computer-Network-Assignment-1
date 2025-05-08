@@ -714,6 +714,7 @@ def client_interface(client: PeerClient):
                 print(f"Messages: {client.messages}")
                 print(f"Username: {client.username}")
                 print(f"User Type: {client.user_type}")
+                print(f"Invisible Mode: {client.invisible_mode}")
                     
             elif user_input.lower().startswith("/refresh"):
                 channel_name = user_input.split(" ", 1)[1].strip()
@@ -759,6 +760,13 @@ def client_interface(client: PeerClient):
                     print(f"Channel Info: {info}")
                 else:
                     print(f"Not connected to channel: {channel_name}")
+                    
+            elif user_input.lower().startswith("/invisible"):
+                mode = user_input.split(" ", 1)[1].strip()
+                if mode in ["on", "off"]:
+                    client.set_invisible_mode(mode)
+                else:
+                    print("Usage: /invisible <on|off>")
             
             ########## TRACKER INTERACTION COMMANDS ##########
             elif user_input.lower().startswith("/signup"):

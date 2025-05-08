@@ -151,7 +151,10 @@ class PeerHost:
             
             with self.authen_peers_lock:
                 if payload['username'] in self.authen_peers:
-                    self.authen_peers[payload['username']]['status'] = 'online'
+                    if payload['invisible'] is True:
+                        self.authen_peers[payload['username']]['status'] = 'offline'
+                    else:
+                        self.authen_peers[payload['username']]['status'] = 'online'
                     
             # Listening loop
             buffer = ""
@@ -220,6 +223,38 @@ class PeerHost:
                                 })
                                 conn.send(response)
                                 
+                        elif command == Command.INVISIBLE.value:
+                            print(0)
+                            with self.authen_peers_lock:
+                                if payload['username'] not in self.authen_peers:
+                                    response = create_response(request_id, Status.UNAUTHORIZED, {
+                                        "message": f"You are not authenticated user of channel {self.channel_name}. So your status is not stored."
+                                    })
+                                    conn.send(response)
+                                    continue
+
+                            if payload['invisible'] is True:
+                                with self.authen_peers_lock:
+                                    self.authen_peers[payload['username']]['status'] = 'offline'
+                                with self.peer_lock:
+                                    for _, _, user in self.connected_peers:
+                                        if user['username'] == payload['username']:
+                                            user['invisible'] = True
+                                            break
+                            else:
+                                with self.authen_peers_lock:
+                                    self.authen_peers[payload['username']]['status'] = 'online'
+                                with self.peer_lock:
+                                    for _, _, user in self.connected_peers:
+                                        if user['username'] == payload['username']:
+                                            user['invisible'] = False
+                                            break
+                                    
+                            response = create_response(request_id, Status.OK, {
+                                "message": f"Your status has been updated to {'offline' if payload['invisible'] else 'online'}."
+                            })
+                            conn.send(response)
+                                
                         elif command == Command.AUTHORIZE.value:
                             author_type = payload['author_type']
                             actor = payload['actor']
@@ -236,6 +271,7 @@ class PeerHost:
                                 for _, _, user in self.connected_peers:
                                     if user['username'] == target:
                                         target_type = user['user_type']
+                                        status = "online" if user['invisible'] is False else "offline"
                                         break
 
                             if target_type is None:
@@ -267,12 +303,12 @@ class PeerHost:
                                         conn.send(response)
                                 continue
                             
-                            elif author_type == 1:
+                            elif author_type == 1:                                    
                                 with self.authen_peers_lock:
                                     if target not in self.authen_peers:
                                         self.authen_peers[target] = {
                                             "role": "user",
-                                            "status": "online",
+                                            "status": status,
                                         }
                                         response = create_response(request_id, Status.OK, {
                                             "message": f"User {target} has been authorized."
